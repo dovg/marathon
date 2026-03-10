@@ -56,6 +56,27 @@ const game = {
   worldX: 0,         // camera scroll offset in pixels
   finishTime: null,
   raceResult: null,   // 'win' or 'lose'
+  // NPCs
+  npcRunners: [],
+  spectators: [],
+  // Rhythm zone
+  rhythmZoneLow: 0.33,
+  rhythmZoneHigh: 0.57,
+  rhythmZoneCenter: 0.45,
+  rhythmEfficiency: 1.0,
+  inRhythmZone: false,
+  // Heart rate
+  heartRate: 65,          // current BPM
+  restingHR: 65,
+  maxHR: 195,
+  heartBeatTimer: 0,      // accumulates time for beat animation
+  heartBeatPhase: 0,      // 0-1 for current beat cycle
+  heartScale: 1.0,        // visual scale for beat pulse
+  hrZone: 0,              // 0=rest, 1=easy, 2=aerobic, 3=threshold, 4=anaerobic
+  avgHeartRate: 65,        // running average for stats
+  hrSamples: 0,
+  maxHeartRateReached: 65,
+  timeInZone: [0, 0, 0, 0, 0], // seconds spent in each zone
   // Pitstop state
   pitstopsUsed: [],   // km values of pitstops already used
   inPitstopZone: false,
@@ -82,7 +103,66 @@ const keys = {};
 let spaceJustPressed = false;
 let drinkJustPressed = false;
 
+// ---- Hidden command input ----
+let cmdActive = false;
+let cmdText = '';
+
+function executeCommand(text) {
+  const match = text.match(/^\/start\s+(\d+(\.\d+)?)$/);
+  if (match) {
+    const km = parseFloat(match[1]);
+    if (km >= 0 && km < RACE_DISTANCE_KM) {
+      resetGame();
+      game.distance = km * METERS_PER_KM;
+      game.worldX = game.distance * PIXELS_PER_METER;
+      // Mark earlier pitstops as used
+      for (let p = PITSTOP_EVERY_KM; p < RACE_DISTANCE_KM; p += PITSTOP_EVERY_KM) {
+        if (p <= km) {
+          game.pitstopsUsed.push(p);
+          game.pitstopsDrunk++;
+        }
+      }
+      // Estimate elapsed time (~5 min/km pace)
+      game.time = km * 300;
+      game.stamina = Math.max(20, 100 - km * 1.5);
+      // Place NPC runners at the same distance as player
+      for (const npc of game.npcRunners) {
+        npc.distance = km * METERS_PER_KM;
+      }
+      game.state = 'running';
+      return;
+    }
+  }
+}
+
 document.addEventListener('keydown', (e) => {
+  // Activate command mode with / on title screen
+  if (e.key === '/' && game.state === 'title' && !cmdActive) {
+    e.preventDefault();
+    cmdActive = true;
+    cmdText = '/';
+    return;
+  }
+
+  // Handle command input
+  if (cmdActive) {
+    e.preventDefault();
+    if (e.code === 'Enter') {
+      executeCommand(cmdText);
+      cmdActive = false;
+      cmdText = '';
+    } else if (e.code === 'Escape') {
+      cmdActive = false;
+      cmdText = '';
+    } else if (e.code === 'Backspace') {
+      cmdText = cmdText.slice(0, -1);
+      if (cmdText.length === 0) { cmdActive = false; }
+    } else if (e.key.length === 1) {
+      cmdText += e.key;
+    }
+    return;
+  }
+
   if (e.code === 'Space') {
     e.preventDefault();
     if (!keys['Space']) {
@@ -207,7 +287,29 @@ function update(dt) {
   const normalizedFreq = Math.min(freq / 7, 1);
   const powerMult = getPowerMultiplier();
   const staminaMult = game.stamina / game.maxStamina;
-  const targetSpeed = normalizedFreq * game.maxSpeed * powerMult * staminaMult;
+
+  // Rhythm Zone: optimal frequency range shifts with distance
+  // The zone moves during the race — player must adapt their rhythm
+  const progress = game.distance / TOTAL_METERS;
+  const zoneCenterNorm = 0.45 + 0.15 * Math.sin(progress * Math.PI * 4); // oscillates 0.3-0.6
+  const zoneHalfWidth = 0.12;
+  const zoneLow = zoneCenterNorm - zoneHalfWidth;
+  const zoneHigh = zoneCenterNorm + zoneHalfWidth;
+  game.rhythmZoneLow = zoneLow;
+  game.rhythmZoneHigh = zoneHigh;
+  game.rhythmZoneCenter = zoneCenterNorm;
+
+  // How close is player to the zone center? 1.0 = perfect, 0 = far outside
+  const distFromCenter = Math.abs(normalizedFreq - zoneCenterNorm);
+  const inZone = normalizedFreq >= zoneLow && normalizedFreq <= zoneHigh;
+  // Efficiency: in-zone = 1.0-1.25 bonus, outside = 0.7-1.0 penalty
+  const rhythmEfficiency = inZone
+    ? 1.0 + 0.25 * (1 - distFromCenter / zoneHalfWidth)
+    : Math.max(0.7, 1.0 - distFromCenter * 0.8);
+  game.rhythmEfficiency = rhythmEfficiency;
+  game.inRhythmZone = inZone;
+
+  const targetSpeed = normalizedFreq * game.maxSpeed * powerMult * staminaMult * rhythmEfficiency;
 
   // Smooth speed transition
   game.speed += (targetSpeed - game.speed) * Math.min(dt * 3, 1);
@@ -218,10 +320,65 @@ function update(dt) {
     game.speed *= Math.pow(0.3, dt);
   }
 
-  // Stamina: drains with high frequency, recovers at low frequency
-  const staminaDrain = normalizedFreq * 8 * dt;  // drain rate
-  const staminaRecovery = (1 - normalizedFreq) * 3 * dt; // recovery rate
+  // Stamina: drains based on frequency, but rhythm zone reduces drain
+  const drainThreshold = 0.5; // no drain below 50% press rate
+  const excessFreq = Math.max(0, normalizedFreq - drainThreshold);
+  const rhythmDrainMult = inZone ? 0.5 : 1.3; // in-zone = half drain, out-zone = extra drain
+  const staminaDrain = excessFreq * 6 * rhythmDrainMult * dt;
+  const staminaRecovery = (1 - normalizedFreq) * 5 * dt; // recovery rate
   game.stamina = Math.max(0, Math.min(game.maxStamina, game.stamina - staminaDrain + staminaRecovery));
+
+  // ---- Heart Rate simulation ----
+  // Target HR based on effort (normalizedFreq), fatigue, and distance
+  const fatigueEffect = 1 + (1 - game.stamina / game.maxStamina) * 0.15; // low stamina → higher HR
+  const driftEffect = 1 + (game.distance / TOTAL_METERS) * 0.08; // cardiac drift: HR rises over distance
+  const effortHR = game.restingHR + normalizedFreq * (game.maxHR - game.restingHR) * fatigueEffect * driftEffect;
+  const targetHR = Math.min(game.maxHR, effortHR);
+
+  // HR inertia: rises fast (~8s to peak), drops slow (~20s to rest) — like a real heart
+  const hrDiff = targetHR - game.heartRate;
+  const hrRate = hrDiff > 0 ? 0.12 : 0.05; // rise rate vs recovery rate
+  game.heartRate += hrDiff * hrRate * dt * 10;
+  game.heartRate = Math.max(game.restingHR, Math.min(game.maxHR, game.heartRate));
+
+  // Heart beat animation — pulse at actual BPM
+  const beatInterval = 60 / game.heartRate; // seconds per beat
+  game.heartBeatTimer += dt;
+  if (game.heartBeatTimer >= beatInterval) {
+    game.heartBeatTimer -= beatInterval;
+    game.heartScale = 1.35; // pulse up on beat
+  }
+  // Decay the pulse
+  game.heartScale += (1.0 - game.heartScale) * Math.min(dt * 12, 1);
+  game.heartBeatPhase = game.heartBeatTimer / beatInterval;
+
+  // HR Zones (based on % of maxHR, standard training zones)
+  const hrPercent = game.heartRate / game.maxHR;
+  if (hrPercent < 0.55) game.hrZone = 0;       // rest
+  else if (hrPercent < 0.65) game.hrZone = 1;   // Zone 1: easy / warm-up
+  else if (hrPercent < 0.80) game.hrZone = 2;   // Zone 2: aerobic / marathon pace
+  else if (hrPercent < 0.90) game.hrZone = 3;   // Zone 3: threshold
+  else game.hrZone = 4;                          // Zone 4: anaerobic / red line
+
+  // Track time in each zone
+  game.timeInZone[game.hrZone] += dt;
+
+  // HR affects stamina drain: zones 3-4 burn extra stamina
+  if (game.hrZone >= 3) {
+    const hrDrainMult = game.hrZone === 4 ? 3.0 : 1.5;
+    game.stamina = Math.max(0, game.stamina - hrDrainMult * dt);
+  }
+  // Zone 2 gives slight stamina recovery bonus (optimal marathon zone)
+  if (game.hrZone === 2 && normalizedFreq > 0.1) {
+    game.stamina = Math.min(game.maxStamina, game.stamina + 0.5 * dt);
+  }
+
+  // Stats tracking
+  game.hrSamples++;
+  game.avgHeartRate += (game.heartRate - game.avgHeartRate) / game.hrSamples;
+  if (game.heartRate > game.maxHeartRateReached) {
+    game.maxHeartRateReached = game.heartRate;
+  }
 
   // Power follows the curve (not directly controllable)
   game.power = getPowerMultiplier() * game.maxPower;
@@ -254,6 +411,9 @@ function update(dt) {
       game.runner.stepping = false;
     }
   }
+
+  // Update NPCs
+  updateNPCs(dt);
 
   // Check finish - crossed the finish line
   if (game.distance >= TOTAL_METERS) {
@@ -338,6 +498,40 @@ function drawRunner() {
   }
 }
 
+// ---- Scene system: Real Moscow Marathon route ----
+// Scene 0 (0-2 km): Luzhniki Stadium — start
+// Scene 1 (2-8 km): Embankment + Old City
+// Scene 2 (8-14 km): Embankment + Kremlin
+// Scene 3 (14-20 km): Moscow City skyscrapers
+// Scene 4 (20-28 km): Ulitsa 1905 Goda
+// Scene 5 (28-34 km): Kitay-Gorod
+// Scene 6 (34-40 km): Embankment return
+// Scene 7 (40-42 km): Luzhniki Stadium — finish
+
+const SCENE_BOUNDARIES = [0, 2, 8, 14, 20, 28, 34, 40, 42];
+
+function getCurrentScene() {
+  const km = game.distance / METERS_PER_KM;
+  for (let i = SCENE_BOUNDARIES.length - 2; i >= 0; i--) {
+    if (km >= SCENE_BOUNDARIES[i]) return i;
+  }
+  return 0;
+}
+
+function getSceneBlend() {
+  const km = game.distance / METERS_PER_KM;
+  const tw = 1; // 1km transition width
+  for (let i = 1; i < SCENE_BOUNDARIES.length - 1; i++) {
+    const b = SCENE_BOUNDARIES[i];
+    if (km >= b - tw && km < b + tw) {
+      return km < b
+        ? (km - (b - tw)) / tw
+        : 1 - (km - b) / tw;
+    }
+  }
+  return 0;
+}
+
 // ---- Draw Ground ----
 function drawGround() {
   const scene = getCurrentScene();
@@ -346,12 +540,27 @@ function drawGround() {
   ctx.fillStyle = '#4a5568';
   ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
 
-  // Road surface - varies by scene
-  if (scene === 0) {
-    // Embankment: cobblestone-like
+  if (scene === 0 || scene === 7) {
+    // Stadium track — red/brown tartan surface
+    ctx.fillStyle = '#8b3a3a';
+    ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+    // Lane lines
+    ctx.fillStyle = '#c0c0c0';
+    for (let lane = 0; lane < 4; lane++) {
+      ctx.fillRect(0, GROUND_Y + 4 + lane * 10, canvas.width, 1);
+    }
+    // Track texture dots
+    ctx.fillStyle = '#9a4a4a';
+    const dotOff = -(game.worldX % 12);
+    for (let dx = dotOff - 12; dx < canvas.width + 12; dx += 12) {
+      for (let dy = 0; dy < 3; dy++) {
+        ctx.fillRect(Math.floor(dx) + (dy % 2) * 6, GROUND_Y + 2 + dy * 12, 2, 2);
+      }
+    }
+  } else if (scene === 1 || scene === 2 || scene === 6) {
+    // Cobblestone embankment
     ctx.fillStyle = '#78909c';
     ctx.fillRect(0, GROUND_Y, canvas.width, 40);
-    // Cobblestone pattern
     ctx.fillStyle = '#90a4ae';
     const cobOff = -(game.worldX % 16);
     for (let row = 0; row < 3; row++) {
@@ -360,35 +569,59 @@ function drawGround() {
         ctx.fillRect(Math.floor(cx), GROUND_Y + 2 + row * 12, 14, 10);
       }
     }
-    // Curb
     ctx.fillStyle = '#b0bec5';
     ctx.fillRect(0, GROUND_Y - 2, canvas.width, 3);
-  } else if (scene === 1) {
-    // Park: asphalt path with grass edges
-    ctx.fillStyle = '#4caf50';
-    ctx.fillRect(0, GROUND_Y, canvas.width, 40);
-    // Asphalt path in center
-    ctx.fillStyle = '#616161';
-    ctx.fillRect(0, GROUND_Y + 5, canvas.width, 25);
-    // Path edges
-    ctx.fillStyle = '#757575';
-    ctx.fillRect(0, GROUND_Y + 5, canvas.width, 2);
-    ctx.fillRect(0, GROUND_Y + 28, canvas.width, 2);
-  } else {
-    // Moscow City: modern road
+  } else if (scene === 3) {
+    // Modern asphalt with yellow lane markings
     ctx.fillStyle = '#424242';
     ctx.fillRect(0, GROUND_Y, canvas.width, 40);
-    // Lane markings
     ctx.fillStyle = '#ffd600';
     ctx.fillRect(0, GROUND_Y + 2, canvas.width, 2);
+    ctx.fillRect(0, GROUND_Y + 36, canvas.width, 2);
+  } else if (scene === 4) {
+    // Urban asphalt with tram rails
+    ctx.fillStyle = '#505050';
+    ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+    // Tram rails
+    ctx.fillStyle = '#8a8a8a';
+    const railOff = -(game.worldX % 80);
+    ctx.fillRect(0, GROUND_Y + 10, canvas.width, 2);
+    ctx.fillRect(0, GROUND_Y + 28, canvas.width, 2);
+    // Rail cross-ties
+    ctx.fillStyle = '#6a6a6a';
+    for (let rx = railOff - 80; rx < canvas.width + 80; rx += 80) {
+      ctx.fillRect(Math.floor(rx), GROUND_Y + 8, 4, 24);
+    }
+  } else if (scene === 5) {
+    // Old stone pavement
+    ctx.fillStyle = '#8d8468';
+    ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+    ctx.fillStyle = '#9e9578';
+    const stoneOff = -(game.worldX % 20);
+    for (let row = 0; row < 3; row++) {
+      const rowOff = row % 2 === 0 ? 0 : 10;
+      for (let sx = stoneOff - 20 + rowOff; sx < canvas.width + 20; sx += 20) {
+        ctx.fillRect(Math.floor(sx), GROUND_Y + 2 + row * 12, 18, 10);
+      }
+    }
+    // Stone gaps
+    ctx.fillStyle = '#6b6550';
+    for (let row = 0; row < 3; row++) {
+      const rowOff = row % 2 === 0 ? 0 : 10;
+      for (let sx = stoneOff - 20 + rowOff; sx < canvas.width + 20; sx += 20) {
+        ctx.fillRect(Math.floor(sx) - 1, GROUND_Y + 2 + row * 12, 1, 10);
+      }
+    }
   }
 
-  // Road markings (scrolling dashes)
-  ctx.fillStyle = '#e2e8f0';
-  const markSpacing = 60;
-  const offset = -(game.worldX % markSpacing);
-  for (let i = offset; i < canvas.width + markSpacing; i += markSpacing) {
-    ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+  // Road markings (scrolling dashes) — skip on stadium track and old stone
+  if (scene !== 0 && scene !== 7 && scene !== 5) {
+    ctx.fillStyle = '#e2e8f0';
+    const markSpacing = 60;
+    const offset = -(game.worldX % markSpacing);
+    for (let i = offset; i < canvas.width + markSpacing; i += markSpacing) {
+      ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+    }
   }
 
   // Sidewalk edge
@@ -396,76 +629,55 @@ function drawGround() {
   ctx.fillRect(0, GROUND_Y + 38, canvas.width, 2);
 }
 
-// ---- Scene system: Moscow backgrounds change with distance ----
-// Scene 0 (0-14 km): Kremlin Embankment - river, Kremlin walls, towers
-// Scene 1 (14-28 km): Gorky Park - trees, park entrance arch, paths
-// Scene 2 (28-42 km): Moscow City - modern skyscrapers, bridge, return to Kremlin view at finish
-
-function getCurrentScene() {
-  const km = game.distance / METERS_PER_KM;
-  if (km < 14) return 0;
-  if (km < 28) return 1;
-  return 2;
-}
-
-// Blend factor for smooth transitions (0..1, 1 = fully new scene)
-function getSceneBlend() {
-  const km = game.distance / METERS_PER_KM;
-  const transitionWidth = 1.5; // km over which blend happens
-  if (km < 14 - transitionWidth) return 0;
-  if (km < 14) return (km - (14 - transitionWidth)) / transitionWidth;
-  if (km < 14 + transitionWidth) return 1 - (km - 14) / transitionWidth;
-  if (km < 28 - transitionWidth) return 0;
-  if (km < 28) return (km - (28 - transitionWidth)) / transitionWidth;
-  if (km < 28 + transitionWidth) return 1 - (km - 28) / transitionWidth;
-  return 0;
-}
-
 // ---- Draw Sky ----
 function drawSky() {
   const scene = getCurrentScene();
-  let colors;
-  if (scene === 0) {
-    // Dawn/morning sky for Kremlin embankment
-    colors = ['#1a1a2e', '#16213e', '#2a4a7f', '#5b86c5'];
-  } else if (scene === 1) {
-    // Daytime sky for Gorky Park
-    colors = ['#1565c0', '#1e88e5', '#42a5f5', '#90caf9'];
-  } else {
-    // Late afternoon/sunset for Moscow City
-    colors = ['#1a1a2e', '#4a1942', '#c0392b', '#e67e22'];
-  }
+  const skyPalettes = [
+    ['#2a1a30', '#3d2545', '#6b4070', '#c08090'],  // 0: Dawn pink-grey
+    ['#1a2a4e', '#2a4a7f', '#4a7abf', '#7ab0df'],  // 1: Early morning blue
+    ['#16213e', '#2a4a7f', '#5b86c5', '#8ab8e5'],  // 2: Morning
+    ['#1565c0', '#1e88e5', '#42a5f5', '#90caf9'],  // 3: Late morning
+    ['#1976d2', '#2196f3', '#64b5f6', '#e3f2fd'],  // 4: Midday bright
+    ['#1565c0', '#2979b5', '#5b9bd0', '#b0c4de'],  // 5: Afternoon
+    ['#2a1a30', '#6b3050', '#c06040', '#e09050'],  // 6: Late afternoon/sunset
+    ['#3a1a20', '#7a3030', '#d06030', '#f0a040'],  // 7: Sunset/golden
+  ];
+  const colors = skyPalettes[scene];
   const bandH = 80;
   for (let i = 0; i < colors.length; i++) {
     ctx.fillStyle = colors[i];
     ctx.fillRect(0, i * bandH, canvas.width, bandH);
   }
 
-  // Sun/moon depending on scene
-  if (scene === 1) {
-    // Sun in daytime
-    ctx.fillStyle = '#fff59d';
+  // Sun position progresses across scenes (left to right over the day)
+  const sunPositions = [
+    { x: 100, y: 250, r: 25, show: false },  // 0: dawn, sun below horizon
+    { x: 200, y: 180, r: 22, show: true },    // 1: early morning, low east
+    { x: 350, y: 100, r: 22, show: true },    // 2: morning, rising
+    { x: 500, y: 60,  r: 24, show: true },    // 3: late morning, high
+    { x: 600, y: 50,  r: 26, show: true },    // 4: midday, highest
+    { x: 650, y: 80,  r: 24, show: true },    // 5: afternoon, descending
+    { x: 720, y: 180, r: 30, show: true },    // 6: sunset, low west
+    { x: 750, y: 220, r: 35, show: true },    // 7: golden, near horizon
+  ];
+  const sun = sunPositions[scene];
+  if (sun.show) {
+    const isLow = scene >= 6;
+    ctx.fillStyle = isLow ? '#ff7043' : '#fff59d';
     ctx.beginPath();
-    ctx.arc(650, 60, 20, 0, Math.PI * 2);
+    ctx.arc(sun.x, sun.y, sun.r, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = '#fff9c4';
+    ctx.fillStyle = isLow ? '#ffab91' : '#fff9c4';
     ctx.beginPath();
-    ctx.arc(650, 60, 25, 0, Math.PI * 2);
-    ctx.globalAlpha = 0.3;
+    ctx.arc(sun.x, sun.y, sun.r + 8, 0, Math.PI * 2);
+    ctx.globalAlpha = isLow ? 0.25 : 0.3;
     ctx.fill();
     ctx.globalAlpha = 1;
-  } else if (scene === 2) {
-    // Setting sun
-    ctx.fillStyle = '#ff7043';
-    ctx.beginPath();
-    ctx.arc(700, 200, 30, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = '#ffab91';
-    ctx.beginPath();
-    ctx.arc(700, 200, 40, 0, Math.PI * 2);
-    ctx.globalAlpha = 0.2;
-    ctx.fill();
-    ctx.globalAlpha = 1;
+  }
+  // Dawn glow for scene 0
+  if (scene === 0) {
+    ctx.fillStyle = '#d4758080';
+    ctx.fillRect(0, 240, canvas.width, 80);
   }
 }
 
@@ -474,29 +686,272 @@ function drawBackground() {
   const scene = getCurrentScene();
   const parallax = game.worldX * 0.15;
 
-  if (scene === 0) {
-    drawKremlinEmbankment(parallax);
-  } else if (scene === 1) {
-    drawGorkyPark(parallax);
-  } else {
-    drawMoscowCity(parallax);
+  switch (scene) {
+    case 0: drawLuzhniki(parallax, false); break;
+    case 1: drawOldCityEmbankment(parallax); break;
+    case 2: drawKremlinEmbankment(parallax); break;
+    case 3: drawMoscowCity(parallax); break;
+    case 4: drawUlitsa1905(parallax); break;
+    case 5: drawKitayGorod(parallax); break;
+    case 6: drawEmbankmentReturn(parallax); break;
+    case 7: drawLuzhniki(parallax, true); break;
   }
 }
 
-// ---- Scene 0: Kremlin Embankment ----
-function drawKremlinEmbankment(parallax) {
-  // Far background: river
-  const riverY = GROUND_Y - 30;
+// ---- Helper: Onion dome ----
+function drawOnionDome(x, y, color) {
+  x = Math.floor(x);
+  y = Math.floor(y);
+  // Bulb shape
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y - 20);
+  ctx.quadraticCurveTo(x + 12, y - 16, x + 10, y - 6);
+  ctx.quadraticCurveTo(x + 8, y, x, y);
+  ctx.quadraticCurveTo(x - 8, y, x - 10, y - 6);
+  ctx.quadraticCurveTo(x - 12, y - 16, x, y - 20);
+  ctx.fill();
+  // Cross on top
+  ctx.fillStyle = '#ffd600';
+  ctx.fillRect(x - 1, y - 26, 2, 8);
+  ctx.fillRect(x - 3, y - 24, 6, 2);
+}
 
-  // Kremlin wall (continuous, slow parallax)
+// ---- Helper: Stalinist building ----
+function drawStalinistBuilding(x, baseY) {
+  x = Math.floor(x);
+  if (x < -80 || x > canvas.width + 80) return;
+  const w = 70;
+  const h = 120;
+  const y = baseY - h;
+
+  // Main body
+  ctx.fillStyle = '#a09078';
+  ctx.fillRect(x - w / 2, y, w, h);
+
+  // Central tower section
+  ctx.fillStyle = '#b0a088';
+  ctx.fillRect(x - 15, y - 30, 30, 30);
+  // Spire
+  ctx.fillStyle = '#8a7a68';
+  ctx.beginPath();
+  ctx.moveTo(x - 10, y - 30);
+  ctx.lineTo(x, y - 55);
+  ctx.lineTo(x + 10, y - 30);
+  ctx.fill();
+  // Star on top
+  ctx.fillStyle = '#e63946';
+  ctx.fillRect(x - 3, y - 60, 6, 6);
+
+  // Windows (rows and columns)
+  ctx.fillStyle = '#ffeaa7';
+  for (let wy = y + 8; wy < y + h - 8; wy += 14) {
+    for (let wx = x - w / 2 + 6; wx < x + w / 2 - 6; wx += 12) {
+      ctx.fillRect(wx, wy, 6, 8);
+    }
+  }
+
+  // Ornamental cornice
+  ctx.fillStyle = '#c0b098';
+  ctx.fillRect(x - w / 2 - 2, y, w + 4, 4);
+  ctx.fillRect(x - w / 2 - 2, y + h / 3, w + 4, 3);
+
+  // Columns/pilasters on facade
+  ctx.fillStyle = '#c5b8a0';
+  ctx.fillRect(x - w / 2, y, 4, h);
+  ctx.fillRect(x + w / 2 - 4, y, 4, h);
+  ctx.fillRect(x - 2, y, 4, h);
+}
+
+// ---- Helper: Stadium stands with arched roof ----
+function drawStadiumStands(parallax, isFinish) {
+  const farP = parallax * 0.4;
+
+  // Main stadium structure
+  const standY = GROUND_Y - 120;
+
+  // Stands — tiered seating
+  ctx.fillStyle = '#455a64';
+  ctx.fillRect(0, standY, canvas.width, 120);
+
+  // Tiered rows of seats
+  const seatColors = ['#e63946', '#c0392b', '#a93226', '#922b21', '#7b241c'];
+  for (let row = 0; row < 5; row++) {
+    ctx.fillStyle = seatColors[row];
+    ctx.fillRect(0, standY + row * 20, canvas.width, 18);
+    // Individual seats
+    ctx.fillStyle = seatColors[row] + 'cc';
+    const seatOff = -(farP % 12);
+    for (let sx = seatOff - 12; sx < canvas.width + 12; sx += 12) {
+      ctx.fillRect(Math.floor(sx), standY + row * 20, 10, 16);
+    }
+  }
+
+  // Arched roof structure
+  ctx.strokeStyle = '#78909c';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(0, standY - 10);
+  ctx.quadraticCurveTo(canvas.width / 2, standY - 80, canvas.width, standY - 10);
+  ctx.stroke();
+  // Roof cables
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = '#90a4ae';
+  for (let cx = 100; cx < canvas.width; cx += 100) {
+    ctx.beginPath();
+    ctx.moveTo(cx, standY - 10);
+    const roofY = standY - 80 + Math.pow((cx - canvas.width / 2) / (canvas.width / 2), 2) * 70;
+    ctx.lineTo(cx, roofY);
+    ctx.stroke();
+  }
+
+  // Olympic rings (five interlocking)
+  const ringY = standY - 30;
+  const ringSpacing = 22;
+  const ringStartX = canvas.width / 2 - ringSpacing * 2;
+  const ringColors = ['#0085c7', '#000', '#e63946', '#ffd600', '#009f3d'];
+  ctx.lineWidth = 2;
+  for (let i = 0; i < 5; i++) {
+    ctx.strokeStyle = ringColors[i];
+    ctx.beginPath();
+    const rx = ringStartX + i * ringSpacing;
+    const ry = ringY + (i % 2 === 0 ? 0 : 8);
+    ctx.arc(rx, ry, 8, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  // Entrance tunnels at bottom
+  ctx.fillStyle = '#1a1a2e';
+  const tunnelOff = -(farP % 200);
+  for (let tx = tunnelOff; tx < canvas.width + 200; tx += 200) {
+    ctx.fillRect(Math.floor(tx), GROUND_Y - 30, 40, 30);
+    // Tunnel arch
+    ctx.fillStyle = '#546e7a';
+    ctx.fillRect(Math.floor(tx) - 2, GROUND_Y - 32, 44, 4);
+    ctx.fillStyle = '#1a1a2e';
+  }
+
+  // Finish banners for scene 7
+  if (isFinish) {
+    const bannerOff = -(farP % 300);
+    ctx.fillStyle = '#ffd600';
+    for (let bx = bannerOff; bx < canvas.width + 300; bx += 300) {
+      ctx.fillRect(Math.floor(bx), standY + 5, 60, 16);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.font = '8px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('FINISH', Math.floor(bx) + 30, standY + 16);
+      ctx.fillStyle = '#ffd600';
+    }
+    // Large "MOSCOW MARATHON" banner
+    ctx.fillStyle = 'rgba(230,57,70,0.9)';
+    ctx.fillRect(canvas.width / 2 - 100, standY - 15, 200, 18);
+    ctx.fillStyle = '#fff';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('MOSCOW MARATHON', canvas.width / 2, standY - 2);
+  }
+}
+
+// ---- Scene 0 & 7: Luzhniki Stadium ----
+function drawLuzhniki(parallax, isFinish) {
+  drawStadiumStands(parallax, isFinish);
+}
+
+// ---- Scene 1: Old City Embankment ----
+function drawOldCityEmbankment(parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  // River in background
+  const riverY = GROUND_Y - 30;
+  ctx.fillStyle = '#1565c0';
+  ctx.fillRect(0, riverY - 15, canvas.width, 45);
+  ctx.fillStyle = '#1e88e5';
+  const waveOff = -(farP * 0.5) % 40;
+  for (let wx = waveOff - 40; wx < canvas.width + 40; wx += 40) {
+    ctx.fillRect(Math.floor(wx), riverY - 10, 20, 3);
+    ctx.fillRect(Math.floor(wx) + 10, riverY, 15, 2);
+  }
+
+  // Old merchant houses (colorful facades)
+  const houseSp = 160;
+  const houseOff = -(midP % houseSp);
+  const houseColors = ['#d4a07a', '#c9b88c', '#a8c4a0', '#c4a0a0', '#b8b0c8', '#d0c890'];
+  for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+    const idx = ((Math.floor(hx + midP) * 7) & 0xFF) % houseColors.length;
+    const color = houseColors[idx];
+    const bx = Math.floor(hx);
+    if (bx < -100 || bx > canvas.width + 100) continue;
+
+    const hw = 80 + (idx % 3) * 15;
+    const hh = 80 + (idx % 2) * 20;
+    const hy = GROUND_Y - hh - 35;
+
+    // House body
+    ctx.fillStyle = color;
+    ctx.fillRect(bx, hy, hw, hh);
+
+    // Roof
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(bx - 3, hy - 6, hw + 6, 8);
+
+    // Windows
+    ctx.fillStyle = '#ffeaa7';
+    for (let wy = hy + 10; wy < hy + hh - 10; wy += 18) {
+      for (let wx = bx + 8; wx < bx + hw - 8; wx += 16) {
+        ctx.fillRect(wx, wy, 8, 10);
+        // Window frame
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(wx - 1, wy - 1, 10, 1);
+        ctx.fillRect(wx + 3, wy, 1, 10);
+        ctx.fillStyle = '#ffeaa7';
+      }
+    }
+
+    // Door
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(bx + hw / 2 - 6, hy + hh - 20, 12, 20);
+  }
+
+  // Church with onion dome (appears periodically)
+  const churchSp = 1800;
+  const churchOff = -(midP % churchSp);
+  for (let cx = churchOff - churchSp; cx < canvas.width + churchSp; cx += churchSp) {
+    const bx = Math.floor(cx + 500);
+    if (bx < -60 || bx > canvas.width + 60) continue;
+    // Church body
+    ctx.fillStyle = '#e8e0d0';
+    ctx.fillRect(bx - 20, GROUND_Y - 130, 40, 95);
+    // Church roof
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(bx - 25, GROUND_Y - 135, 50, 8);
+    // Onion dome
+    drawOnionDome(bx, GROUND_Y - 140, '#2e7d32');
+    // Small side domes
+    drawOnionDome(bx - 18, GROUND_Y - 120, '#1b5e20');
+    drawOnionDome(bx + 18, GROUND_Y - 120, '#1b5e20');
+  }
+
+  // Embankment railing
+  ctx.fillStyle = '#546e7a';
+  const railOff = -(parallax % 50);
+  for (let rx = railOff - 50; rx < canvas.width + 50; rx += 50) {
+    ctx.fillRect(Math.floor(rx), GROUND_Y - 25, 3, 25);
+  }
+  ctx.fillRect(0, GROUND_Y - 25, canvas.width, 2);
+}
+
+// ---- Scene 2: Kremlin Embankment ----
+function drawKremlinEmbankment(parallax) {
+  const riverY = GROUND_Y - 30;
   const wallParallax = parallax * 0.6;
   const wallHeight = 70;
   const wallY = GROUND_Y - wallHeight - 40;
 
-  // Draw river behind the wall
+  // River
   ctx.fillStyle = '#1565c0';
   ctx.fillRect(0, riverY - 15, canvas.width, 45);
-  // River waves
   ctx.fillStyle = '#1e88e5';
   const waveOff = -(parallax * 0.3) % 40;
   for (let wx = waveOff - 40; wx < canvas.width + 40; wx += 40) {
@@ -507,8 +962,6 @@ function drawKremlinEmbankment(parallax) {
   // Kremlin wall
   ctx.fillStyle = '#8b4513';
   ctx.fillRect(0, wallY, canvas.width, wallHeight);
-
-  // Wall texture - brick lines
   ctx.fillStyle = '#7a3b10';
   for (let by = wallY + 8; by < wallY + wallHeight; by += 10) {
     const brickOff = (by % 20 === 0) ? 0 : 15;
@@ -517,14 +970,14 @@ function drawKremlinEmbankment(parallax) {
     }
   }
 
-  // Crenellations (merlons) on top of wall
+  // Crenellations
   ctx.fillStyle = '#8b4513';
   const crenOff = -(wallParallax % 24);
   for (let cx = crenOff - 24; cx < canvas.width + 24; cx += 24) {
     ctx.fillRect(Math.floor(cx), wallY - 12, 14, 12);
   }
 
-  // Kremlin towers at intervals
+  // Kremlin towers
   const towerSpacing = 1200;
   const towerOff = -(wallParallax % towerSpacing);
   for (let shift = towerOff - towerSpacing; shift < canvas.width + towerSpacing; shift += towerSpacing) {
@@ -532,30 +985,24 @@ function drawKremlinEmbankment(parallax) {
     drawKremlinTowerDetailed(shift + 700, wallY);
   }
 
-  // Embankment railing in foreground
+  // Embankment railing
   ctx.fillStyle = '#546e7a';
   const railOff = -(parallax % 50);
   for (let rx = railOff - 50; rx < canvas.width + 50; rx += 50) {
-    // Railing post
     ctx.fillRect(Math.floor(rx), GROUND_Y - 25, 3, 25);
   }
-  // Top rail
   ctx.fillRect(0, GROUND_Y - 25, canvas.width, 2);
 }
 
 function drawKremlinTowerDetailed(tx, wallY) {
   if (tx < -120 || tx > canvas.width + 120) return;
-
   tx = Math.floor(tx);
   const towerW = 50;
   const towerH = 140;
   const towerY = wallY - towerH + 70;
 
-  // Tower body
   ctx.fillStyle = '#6c3a2a';
   ctx.fillRect(tx - towerW / 2, towerY, towerW, towerH);
-
-  // Tower narrowing section
   ctx.fillStyle = '#7a4a30';
   ctx.fillRect(tx - towerW / 2 + 5, towerY - 20, towerW - 10, 25);
 
@@ -567,15 +1014,12 @@ function drawKremlinTowerDetailed(tx, wallY) {
   ctx.lineTo(tx + towerW / 2 + 2, towerY - 20);
   ctx.fill();
 
-  // Spire
+  // Spire & star
   ctx.fillStyle = '#ffd600';
   ctx.fillRect(tx - 1, towerY - 82, 3, 14);
-
-  // Red star
-  ctx.fillStyle = '#e63946';
   drawPixelRect(tx - 4, towerY - 88, 9, 8, '#e63946');
 
-  // Clock face on tower
+  // Clock face
   ctx.fillStyle = '#fff9c4';
   ctx.beginPath();
   ctx.arc(tx, towerY + 30, 10, 0, Math.PI * 2);
@@ -592,141 +1036,16 @@ function drawKremlinTowerDetailed(tx, wallY) {
   }
 }
 
-// ---- Scene 1: Gorky Park ----
-function drawGorkyPark(parallax) {
-  // Background: distant trees (very slow parallax)
-  const farParallax = parallax * 0.3;
-  ctx.fillStyle = '#2e7d32';
-  const treeLineY = GROUND_Y - 100;
-  // Treeline silhouette
-  const treeSp = 40;
-  const treeOff = -(farParallax % treeSp);
-  for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
-    const th = 40 + ((Math.floor(tx + farParallax) * 7) & 31);
-    ctx.fillStyle = '#1b5e20';
-    // Tree crown (circle-ish)
-    ctx.beginPath();
-    ctx.arc(Math.floor(tx), treeLineY - th / 2 + 20, th / 2, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Mid-ground: park elements (medium parallax)
-  const midParallax = parallax * 0.5;
-
-  // Park entrance arch (appears periodically)
-  const archSpacing = 2000;
-  const archOff = -(midParallax % archSpacing);
-  for (let shift = archOff - archSpacing; shift < canvas.width + archSpacing; shift += archSpacing) {
-    drawParkArch(shift + 400);
-  }
-
-  // Benches
-  const benchSp = 600;
-  const benchOff = -(midParallax % benchSp);
-  for (let bx = benchOff - benchSp; bx < canvas.width + benchSp; bx += benchSp) {
-    drawParkBench(Math.floor(bx + 100));
-  }
-
-  // Foreground trees (closer, faster parallax)
-  const nearParallax = parallax * 0.7;
-  const nearTreeSp = 200;
-  const nearTreeOff = -(nearParallax % nearTreeSp);
-  for (let tx = nearTreeOff - nearTreeSp; tx < canvas.width + nearTreeSp; tx += nearTreeSp) {
-    drawParkTree(Math.floor(tx), GROUND_Y);
-    drawParkTree(Math.floor(tx + 90), GROUND_Y);
-  }
-
-  // Flower beds
-  ctx.fillStyle = '#4caf50';
-  ctx.fillRect(0, GROUND_Y - 8, canvas.width, 8);
-  const flowerOff = -(nearParallax % 20);
-  for (let fx = flowerOff - 20; fx < canvas.width + 20; fx += 20) {
-    const hash = (Math.floor(fx + nearParallax) * 13) & 7;
-    if (hash < 3) {
-      ctx.fillStyle = hash === 0 ? '#f44336' : hash === 1 ? '#ffeb3b' : '#e91e63';
-      ctx.fillRect(Math.floor(fx), GROUND_Y - 10 - (hash * 2), 4, 4);
-    }
-  }
-}
-
-function drawParkArch(ax) {
-  if (ax < -100 || ax > canvas.width + 100) return;
-  ax = Math.floor(ax);
-
-  // Two pillars
-  ctx.fillStyle = '#78909c';
-  ctx.fillRect(ax - 40, GROUND_Y - 110, 12, 110);
-  ctx.fillRect(ax + 28, GROUND_Y - 110, 12, 110);
-
-  // Arch top
-  ctx.fillStyle = '#607d8b';
-  ctx.fillRect(ax - 45, GROUND_Y - 120, 90, 14);
-
-  // "GORKY PARK" text
-  ctx.fillStyle = '#fff';
-  ctx.font = '8px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('GORKY PARK', ax, GROUND_Y - 108);
-
-  // Decorative top
-  ctx.fillStyle = '#90a4ae';
-  ctx.fillRect(ax - 30, GROUND_Y - 130, 60, 10);
-  // Small ornament
-  ctx.fillRect(ax - 5, GROUND_Y - 138, 10, 8);
-}
-
-function drawParkBench(bx) {
-  if (bx < -40 || bx > canvas.width + 40) return;
-  // Bench seat
-  ctx.fillStyle = '#795548';
-  ctx.fillRect(bx, GROUND_Y - 18, 30, 4);
-  // Bench legs
-  ctx.fillStyle = '#4e342e';
-  ctx.fillRect(bx + 2, GROUND_Y - 14, 3, 14);
-  ctx.fillRect(bx + 25, GROUND_Y - 14, 3, 14);
-  // Bench back
-  ctx.fillStyle = '#795548';
-  ctx.fillRect(bx, GROUND_Y - 30, 30, 3);
-  ctx.fillRect(bx, GROUND_Y - 24, 30, 3);
-}
-
-function drawParkTree(tx, groundY) {
-  if (tx < -40 || tx > canvas.width + 40) return;
-  // Trunk
-  ctx.fillStyle = '#5d4037';
-  ctx.fillRect(tx + 8, groundY - 60, 6, 60);
-
-  // Crown layers (bushy deciduous tree)
-  ctx.fillStyle = '#388e3c';
-  ctx.beginPath();
-  ctx.arc(tx + 11, groundY - 75, 22, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#43a047';
-  ctx.beginPath();
-  ctx.arc(tx + 5, groundY - 65, 16, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(tx + 18, groundY - 68, 14, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = '#4caf50';
-  ctx.beginPath();
-  ctx.arc(tx + 11, groundY - 82, 12, 0, Math.PI * 2);
-  ctx.fill();
-}
-
-// ---- Scene 2: Moscow City (Modern Skyscrapers) ----
+// ---- Scene 3: Moscow City ----
 function drawMoscowCity(parallax) {
-  // Far background: city skyline silhouette
   const farParallax = parallax * 0.2;
-
-  // Distant skyscrapers
   const skyscrapers = [
     { x: 0, w: 40, h: 200, color: '#37474f' },
     { x: 60, w: 30, h: 160, color: '#455a64' },
-    { x: 110, w: 50, h: 240, color: '#37474f' },  // Federation Tower
-    { x: 180, w: 35, h: 220, color: '#546e7a' },   // Mercury Tower
+    { x: 110, w: 50, h: 240, color: '#37474f' },
+    { x: 180, w: 35, h: 220, color: '#546e7a' },
     { x: 240, w: 45, h: 180, color: '#455a64' },
-    { x: 310, w: 55, h: 260, color: '#37474f' },   // OKO Tower
+    { x: 310, w: 55, h: 260, color: '#37474f' },
     { x: 390, w: 30, h: 150, color: '#546e7a' },
     { x: 440, w: 40, h: 190, color: '#455a64' },
     { x: 500, w: 50, h: 230, color: '#37474f' },
@@ -743,39 +1062,32 @@ function drawMoscowCity(parallax) {
     for (const s of skyscrapers) {
       const sx = Math.floor(shift + s.x);
       if (sx + s.w < -60 || sx > canvas.width + 60) continue;
-
       ctx.fillStyle = s.color;
       ctx.fillRect(sx, GROUND_Y - s.h, s.w, s.h);
-
-      // Glass windows (horizontal strips)
+      // Glass windows
       ctx.fillStyle = '#78909c';
       for (let wy = GROUND_Y - s.h + 6; wy < GROUND_Y - 4; wy += 8) {
         ctx.fillRect(sx + 2, wy, s.w - 4, 3);
       }
-
-      // Some lit windows (warm glow for sunset scene)
+      // Lit windows
       ctx.fillStyle = '#ffab40';
       for (let wy = GROUND_Y - s.h + 8; wy < GROUND_Y - 8; wy += 16) {
         for (let wx = sx + 4; wx < sx + s.w - 4; wx += 10) {
           const hash = (Math.floor(wx) * 11 + wy * 7) & 0xF;
-          if (hash < 4) {
-            ctx.fillRect(Math.floor(wx), wy, 4, 5);
-          }
+          if (hash < 4) ctx.fillRect(Math.floor(wx), wy, 4, 5);
         }
       }
-
-      // Roof antenna/spire on tall buildings
+      // Antenna on tall buildings
       if (s.h > 200) {
         ctx.fillStyle = '#90a4ae';
         ctx.fillRect(sx + s.w / 2 - 1, GROUND_Y - s.h - 20, 3, 20);
-        // Blinking light
         ctx.fillStyle = '#ff1744';
         ctx.fillRect(sx + s.w / 2 - 2, GROUND_Y - s.h - 22, 5, 4);
       }
     }
   }
 
-  // Bridge in mid-ground
+  // Bridge
   const midParallax = parallax * 0.5;
   const bridgeSp = 1500;
   const bridgeOff = -(midParallax % bridgeSp);
@@ -783,7 +1095,7 @@ function drawMoscowCity(parallax) {
     drawBridge(Math.floor(bx + 300));
   }
 
-  // River in foreground
+  // River
   ctx.fillStyle = '#0d47a1';
   ctx.fillRect(0, GROUND_Y - 20, canvas.width, 20);
   ctx.fillStyle = '#1565c0';
@@ -796,21 +1108,14 @@ function drawMoscowCity(parallax) {
 
 function drawBridge(bx) {
   if (bx < -200 || bx > canvas.width + 200) return;
-
-  // Bridge deck
   ctx.fillStyle = '#607d8b';
   ctx.fillRect(bx - 80, GROUND_Y - 35, 160, 8);
-
-  // Bridge supports
   ctx.fillStyle = '#455a64';
   ctx.fillRect(bx - 70, GROUND_Y - 35, 6, 35);
   ctx.fillRect(bx + 64, GROUND_Y - 35, 6, 35);
   ctx.fillRect(bx - 3, GROUND_Y - 35, 6, 35);
-
-  // Cable/arch
   ctx.fillStyle = '#78909c';
   ctx.fillRect(bx - 2, GROUND_Y - 55, 4, 20);
-  // Cables
   ctx.strokeStyle = '#90a4ae';
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -818,6 +1123,235 @@ function drawBridge(bx) {
   ctx.lineTo(bx, GROUND_Y - 55);
   ctx.lineTo(bx + 70, GROUND_Y - 35);
   ctx.stroke();
+}
+
+// ---- Scene 4: Ulitsa 1905 Goda ----
+function drawUlitsa1905(parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  // Stalinist buildings in background
+  const buildingSp = 800;
+  const buildingOff = -(farP % buildingSp);
+  for (let bx = buildingOff - buildingSp; bx < canvas.width + buildingSp; bx += buildingSp) {
+    drawStalinistBuilding(Math.floor(bx + 200), GROUND_Y - 35);
+    drawStalinistBuilding(Math.floor(bx + 600), GROUND_Y - 35);
+  }
+
+  // Tram wires overhead
+  ctx.strokeStyle = '#555';
+  ctx.lineWidth = 1;
+  const wireOff = -(midP % 150);
+  // Main wire
+  ctx.beginPath();
+  ctx.moveTo(0, GROUND_Y - 170);
+  ctx.lineTo(canvas.width, GROUND_Y - 170);
+  ctx.stroke();
+  // Wire supports (poles)
+  for (let px = wireOff - 150; px < canvas.width + 150; px += 150) {
+    const sx = Math.floor(px);
+    // Pole
+    ctx.fillStyle = '#555';
+    ctx.fillRect(sx, GROUND_Y - 180, 3, 180);
+    // Cross-arm
+    ctx.fillRect(sx - 15, GROUND_Y - 175, 33, 3);
+    // Wire droops
+    ctx.strokeStyle = '#444';
+    ctx.beginPath();
+    ctx.moveTo(sx - 15, GROUND_Y - 170);
+    ctx.quadraticCurveTo(sx + 75, GROUND_Y - 155, sx + 150, GROUND_Y - 170);
+    ctx.stroke();
+  }
+
+  // Street lamps
+  const lampSp = 250;
+  const lampOff = -(midP % lampSp);
+  for (let lx = lampOff - lampSp; lx < canvas.width + lampSp; lx += lampSp) {
+    const sx = Math.floor(lx + 100);
+    if (sx < -20 || sx > canvas.width + 20) continue;
+    // Lamp pole
+    ctx.fillStyle = '#333';
+    ctx.fillRect(sx, GROUND_Y - 60, 3, 60);
+    // Lamp head
+    ctx.fillStyle = '#555';
+    ctx.fillRect(sx - 5, GROUND_Y - 64, 13, 5);
+    // Light glow
+    ctx.fillStyle = '#ffeaa740';
+    ctx.beginPath();
+    ctx.arc(sx + 1, GROUND_Y - 62, 8, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // "1905 ГОДА" street signs
+  const signSp = 2000;
+  const signOff = -(midP % signSp);
+  for (let sx = signOff - signSp; sx < canvas.width + signSp; sx += signSp) {
+    const px = Math.floor(sx + 400);
+    if (px < -60 || px > canvas.width + 60) continue;
+    // Sign plate
+    ctx.fillStyle = '#1565c0';
+    ctx.fillRect(px, GROUND_Y - 100, 70, 18);
+    ctx.fillStyle = '#fff';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('1905 ГОДА', px + 35, GROUND_Y - 87);
+  }
+}
+
+// ---- Scene 5: Kitay-Gorod ----
+function drawKitayGorod(parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  // Fortress wall fragments in far background
+  const wallSp = 1200;
+  const wallOff = -(farP % wallSp);
+  for (let wx = wallOff - wallSp; wx < canvas.width + wallSp; wx += wallSp) {
+    const bx = Math.floor(wx + 300);
+    if (bx < -120 || bx > canvas.width + 120) continue;
+    // Old fortress wall fragment
+    ctx.fillStyle = '#7a6a5a';
+    ctx.fillRect(bx, GROUND_Y - 140, 200, 100);
+    // Crenellations
+    ctx.fillStyle = '#8a7a6a';
+    for (let cx = bx; cx < bx + 200; cx += 20) {
+      ctx.fillRect(cx, GROUND_Y - 150, 12, 12);
+    }
+    // Wall texture
+    ctx.fillStyle = '#6a5a4a';
+    for (let by = GROUND_Y - 130; by < GROUND_Y - 45; by += 12) {
+      for (let bxx = bx + 2; bxx < bx + 198; bxx += 25) {
+        ctx.fillRect(bxx, by, 1, 10);
+      }
+    }
+  }
+
+  // Historic low buildings with arched windows
+  const houseSp = 140;
+  const houseOff = -(midP % houseSp);
+  const houseColors = ['#d8c8a8', '#c8b898', '#e0d0b0', '#c0b090', '#d0c0a0'];
+  for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+    const idx = ((Math.floor(hx + midP) * 11) & 0xFF) % houseColors.length;
+    const bx = Math.floor(hx);
+    if (bx < -80 || bx > canvas.width + 80) continue;
+
+    const hw = 60 + (idx % 3) * 10;
+    const hh = 60 + (idx % 2) * 15;
+    const hy = GROUND_Y - hh - 35;
+
+    ctx.fillStyle = houseColors[idx];
+    ctx.fillRect(bx, hy, hw, hh);
+
+    // Arched windows
+    ctx.fillStyle = '#a08060';
+    for (let wy = hy + 8; wy < hy + hh - 12; wy += 20) {
+      for (let wx = bx + 6; wx < bx + hw - 10; wx += 18) {
+        // Window body
+        ctx.fillRect(wx, wy + 3, 10, 10);
+        // Arch top
+        ctx.beginPath();
+        ctx.arc(wx + 5, wy + 3, 5, Math.PI, 0);
+        ctx.fill();
+        // Glass
+        ctx.fillStyle = '#ffeaa7';
+        ctx.fillRect(wx + 1, wy + 4, 8, 8);
+        ctx.fillStyle = '#a08060';
+      }
+    }
+
+    // Roof
+    ctx.fillStyle = '#6d5d4d';
+    ctx.fillRect(bx - 2, hy - 4, hw + 4, 6);
+  }
+
+  // Old church
+  const churchSp = 2000;
+  const churchOff = -(midP % churchSp);
+  for (let cx = churchOff - churchSp; cx < canvas.width + churchSp; cx += churchSp) {
+    const bx = Math.floor(cx + 800);
+    if (bx < -50 || bx > canvas.width + 50) continue;
+    ctx.fillStyle = '#e8e0d0';
+    ctx.fillRect(bx - 18, GROUND_Y - 120, 36, 85);
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(bx - 22, GROUND_Y - 125, 44, 7);
+    drawOnionDome(bx, GROUND_Y - 130, '#ffd600');
+  }
+}
+
+// ---- Scene 6: Embankment Return (sunset colors) ----
+function drawEmbankmentReturn(parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  // River with sunset reflections
+  const riverY = GROUND_Y - 30;
+  ctx.fillStyle = '#0d47a1';
+  ctx.fillRect(0, riverY - 15, canvas.width, 45);
+  // Sunset reflections on water
+  ctx.fillStyle = '#c06040';
+  ctx.globalAlpha = 0.3;
+  const reflOff = -(farP * 0.4) % 50;
+  for (let rx = reflOff - 50; rx < canvas.width + 50; rx += 50) {
+    ctx.fillRect(Math.floor(rx), riverY - 8, 25, 3);
+    ctx.fillRect(Math.floor(rx) + 12, riverY + 2, 18, 2);
+  }
+  ctx.globalAlpha = 1;
+  // Regular waves
+  ctx.fillStyle = '#1e88e5';
+  const waveOff = -(farP * 0.5) % 40;
+  for (let wx = waveOff - 40; wx < canvas.width + 40; wx += 40) {
+    ctx.fillRect(Math.floor(wx), riverY - 10, 20, 3);
+    ctx.fillRect(Math.floor(wx) + 10, riverY, 15, 2);
+  }
+
+  // Merchant houses (similar to scene 1 but in sunset light)
+  const houseSp = 180;
+  const houseOff = -(midP % houseSp);
+  const houseColors = ['#b08060', '#a07858', '#987050', '#b88868', '#a88070'];
+  for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+    const idx = ((Math.floor(hx + midP) * 7) & 0xFF) % houseColors.length;
+    const bx = Math.floor(hx);
+    if (bx < -100 || bx > canvas.width + 100) continue;
+
+    const hw = 80 + (idx % 3) * 15;
+    const hh = 75 + (idx % 2) * 20;
+    const hy = GROUND_Y - hh - 35;
+
+    ctx.fillStyle = houseColors[idx];
+    ctx.fillRect(bx, hy, hw, hh);
+    ctx.fillStyle = '#5d4037';
+    ctx.fillRect(bx - 3, hy - 6, hw + 6, 8);
+
+    // Warm-lit windows (sunset)
+    ctx.fillStyle = '#ffcc80';
+    for (let wy = hy + 10; wy < hy + hh - 10; wy += 18) {
+      for (let wx = bx + 8; wx < bx + hw - 8; wx += 16) {
+        ctx.fillRect(wx, wy, 8, 10);
+      }
+    }
+  }
+
+  // Church silhouette with onion dome
+  const churchSp = 2200;
+  const churchOff = -(midP % churchSp);
+  for (let cx = churchOff - churchSp; cx < canvas.width + churchSp; cx += churchSp) {
+    const bx = Math.floor(cx + 600);
+    if (bx < -50 || bx > canvas.width + 50) continue;
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(bx - 18, GROUND_Y - 130, 36, 95);
+    ctx.fillRect(bx - 22, GROUND_Y - 135, 44, 7);
+    drawOnionDome(bx, GROUND_Y - 140, '#c0a000');
+    drawOnionDome(bx - 16, GROUND_Y - 118, '#a08800');
+    drawOnionDome(bx + 16, GROUND_Y - 118, '#a08800');
+  }
+
+  // Embankment railing
+  ctx.fillStyle = '#546e7a';
+  const railOff = -(parallax % 50);
+  for (let rx = railOff - 50; rx < canvas.width + 50; rx += 50) {
+    ctx.fillRect(Math.floor(rx), GROUND_Y - 25, 3, 25);
+  }
+  ctx.fillRect(0, GROUND_Y - 25, canvas.width, 2);
 }
 
 // ---- Draw Kilometer Markers ----
@@ -957,12 +1491,167 @@ function drawHUD() {
   ctx.fillStyle = '#6c5ce7';
   ctx.fillRect(90, 92, (game.power / game.maxPower) * 100, 12);
 
-  // Press frequency hint
+  // ---- Heart Rate indicator ----
+  const hrX = canvas.width - 120;
+  const hrY = 15;
+
+  // Background panel
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(hrX - 8, hrY - 5, 62, 145);
+
+  // Pixel-art beating heart
+  const hx = hrX + 14;
+  const hy = hrY + 12;
+  const hs = game.heartScale;
+  const heartColor = game.hrZone <= 1 ? '#e63946' : game.hrZone === 2 ? '#e63946' : game.hrZone === 3 ? '#d63031' : '#c0392b';
+
+  ctx.save();
+  ctx.translate(hx + 8, hy + 7);
+  ctx.scale(hs, hs);
+  ctx.translate(-(hx + 8), -(hy + 7));
+  // Heart shape using pixel rects
+  ctx.fillStyle = heartColor;
+  //   ##  ##
+  //  ########
+  //  ########
+  //   ######
+  //    ####
+  //     ##
+  ctx.fillRect(hx + 2, hy, 4, 2);
+  ctx.fillRect(hx + 10, hy, 4, 2);
+  ctx.fillRect(hx, hy + 2, 16, 2);
+  ctx.fillRect(hx, hy + 4, 16, 2);
+  ctx.fillRect(hx + 2, hy + 6, 12, 2);
+  ctx.fillRect(hx + 4, hy + 8, 8, 2);
+  ctx.fillRect(hx + 6, hy + 10, 4, 2);
+  // Highlight
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillRect(hx + 2, hy, 4, 2);
+  ctx.fillRect(hx, hy + 2, 4, 2);
+  ctx.restore();
+
+  // BPM number
+  ctx.fillStyle = heartColor;
+  ctx.font = 'bold 14px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(Math.round(game.heartRate), hrX + 23, hy + 28);
+  ctx.fillStyle = '#a0aec0';
+  ctx.font = '8px monospace';
+  ctx.fillText('BPM', hrX + 23, hy + 36);
+
+  // HR Zone bar (vertical, showing all 5 zones with current position)
+  const zBarX = hrX + 2;
+  const zBarY = hy + 42;
+  const zBarW = 42;
+  const zBarH = 60;
+
+  // Zone colors and boundaries (% of maxHR)
+  const zones = [
+    { name: 'REST', pct: 0.55, color: '#636e72' },
+    { name: 'EASY', pct: 0.65, color: '#00b894' },
+    { name: 'AERO', pct: 0.80, color: '#00b894' },
+    { name: 'THRS', pct: 0.90, color: '#fdcb6e' },
+    { name: 'MAX',  pct: 1.00, color: '#e63946' },
+  ];
+
+  // Draw zone bands
+  const hrPct = game.heartRate / game.maxHR;
+  let prevPct = 0.40; // start display from 40%
+  const displayRange = 0.60; // show 40%-100%
+  for (let i = 0; i < zones.length; i++) {
+    const bandTop = zBarY + zBarH - ((zones[i].pct - 0.40) / displayRange) * zBarH;
+    const bandBot = zBarY + zBarH - ((prevPct - 0.40) / displayRange) * zBarH;
+    const bandH = bandBot - bandTop;
+    if (bandH > 0 && bandTop < zBarY + zBarH) {
+      ctx.fillStyle = i === game.hrZone ? zones[i].color : zones[i].color + '55';
+      ctx.fillRect(zBarX, Math.max(zBarY, bandTop), zBarW, Math.min(bandH, zBarY + zBarH - bandTop));
+    }
+    prevPct = zones[i].pct;
+  }
+
+  // Border
+  ctx.strokeStyle = '#4a5568';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(zBarX, zBarY, zBarW, zBarH);
+
+  // Current HR needle
+  const hrNeedleY = zBarY + zBarH - ((hrPct - 0.40) / displayRange) * zBarH;
+  const clampedNeedleY = Math.max(zBarY, Math.min(zBarY + zBarH - 2, hrNeedleY));
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(zBarX - 2, Math.floor(clampedNeedleY), zBarW + 4, 2);
+  // Arrow
+  ctx.beginPath();
+  ctx.moveTo(zBarX - 5, Math.floor(clampedNeedleY) + 1);
+  ctx.lineTo(zBarX - 2, Math.floor(clampedNeedleY) - 3);
+  ctx.lineTo(zBarX - 2, Math.floor(clampedNeedleY) + 5);
+  ctx.fill();
+
+  // Zone label
+  const zoneNames = ['REST', 'EASY', 'AERO', 'THRS', 'MAX!'];
+  const zoneColors = ['#636e72', '#00b894', '#00b894', '#fdcb6e', '#e63946'];
+  ctx.fillStyle = zoneColors[game.hrZone];
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(zoneNames[game.hrZone], hrX + 23, zBarY + zBarH + 12);
+
+  // ---- Rhythm Zone indicator (right side) ----
   const freq = getPressFrequency();
+  const normalizedFreq = Math.min(freq / 7, 1);
+  const rzX = canvas.width - 50;
+  const rzY = 15;
+  const rzW = 20;
+  const rzH = 120;
+
+  // Background
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(rzX - 8, rzY - 5, rzW + 16, rzH + 30);
+
+  // Label
   ctx.fillStyle = '#f1faee';
+  ctx.font = '9px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('RHYTHM', rzX + rzW / 2, rzY + rzH + 14);
+
+  // Bar background (gradient from red-top to red-bottom, green in middle)
+  ctx.fillStyle = '#2d3436';
+  ctx.fillRect(rzX, rzY, rzW, rzH);
+
+  // Draw the optimal zone band (green area)
+  const zoneTopY = rzY + rzH - game.rhythmZoneHigh * rzH;
+  const zoneBotY = rzY + rzH - game.rhythmZoneLow * rzH;
+  const zoneHeight = zoneBotY - zoneTopY;
+
+  // Zone glow when player is in it
+  if (game.inRhythmZone) {
+    ctx.fillStyle = 'rgba(0,184,148,0.3)';
+    ctx.fillRect(rzX - 3, zoneTopY - 2, rzW + 6, zoneHeight + 4);
+  }
+  ctx.fillStyle = game.inRhythmZone ? '#00b894' : '#2d6b5a';
+  ctx.fillRect(rzX, zoneTopY, rzW, zoneHeight);
+
+  // Zone border lines
+  ctx.fillStyle = '#00b894';
+  ctx.fillRect(rzX - 2, zoneTopY, rzW + 4, 1);
+  ctx.fillRect(rzX - 2, zoneBotY, rzW + 4, 1);
+
+  // Player's current frequency needle
+  const needleY = rzY + rzH - normalizedFreq * rzH;
+  const needleColor = game.inRhythmZone ? '#ffeaa7' : '#e17055';
+  ctx.fillStyle = needleColor;
+  ctx.fillRect(rzX - 4, Math.floor(needleY) - 1, rzW + 8, 3);
+  // Arrow tip
+  ctx.beginPath();
+  ctx.moveTo(rzX - 7, Math.floor(needleY));
+  ctx.lineTo(rzX - 4, Math.floor(needleY) - 4);
+  ctx.lineTo(rzX - 4, Math.floor(needleY) + 4);
+  ctx.fill();
+
+  // Efficiency percentage
+  const effPercent = Math.round(game.rhythmEfficiency * 100);
+  ctx.fillStyle = game.inRhythmZone ? '#00b894' : '#e17055';
   ctx.font = '10px monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText('Press rate: ' + freq.toFixed(1) + '/s', canvas.width - 20, 30);
+  ctx.textAlign = 'center';
+  ctx.fillText(effPercent + '%', rzX + rzW / 2, rzY + rzH + 24);
 
   // Time limit warning
   const timeRemaining = RACE_TIME_LIMIT - game.time;
@@ -1043,7 +1732,17 @@ function drawTitle() {
 
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText('Tap SPACE rapidly to run. Manage your stamina!', canvas.width / 2, 350);
+  ctx.fillText('Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 350);
+
+  // Hidden command input
+  if (cmdActive) {
+    ctx.fillStyle = 'rgba(0,0,0,0.8)';
+    ctx.fillRect(canvas.width / 2 - 120, 370, 240, 22);
+    ctx.fillStyle = '#00b894';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(cmdText + '_', canvas.width / 2 - 112, 385);
+  }
 }
 
 // ---- Draw Finish Screen ----
@@ -1084,71 +1783,207 @@ function drawFinish() {
 
   // Stats box
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.fillRect(canvas.width / 2 - 170, 125, 340, 180);
+  ctx.fillRect(canvas.width / 2 - 170, 125, 340, 220);
 
   ctx.fillStyle = '#f1faee';
-  ctx.font = '14px monospace';
+  ctx.font = '13px monospace';
   ctx.textAlign = 'left';
   const sx = canvas.width / 2 - 140;
+  const rx = canvas.width / 2 + 140;
+  let sy = 148;
+  const lineH = 18;
 
-  ctx.fillText('Finish Time:', sx, 150);
-  ctx.fillStyle = '#ffeaa7';
-  ctx.textAlign = 'right';
-  ctx.fillText(hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's', canvas.width / 2 + 140, 150);
+  const statLine = (label, value, color) => {
+    ctx.fillStyle = '#f1faee';
+    ctx.textAlign = 'left';
+    ctx.fillText(label, sx, sy);
+    ctx.fillStyle = color || '#f1faee';
+    ctx.textAlign = 'right';
+    ctx.fillText(value, rx, sy);
+    sy += lineH;
+  };
 
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Distance:', sx, 172);
-  ctx.textAlign = 'right';
-  ctx.fillText((game.distance / METERS_PER_KM).toFixed(2) + ' / 42 km', canvas.width / 2 + 140, 172);
+  statLine('Finish Time:', hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's', '#ffeaa7');
+  statLine('Distance:', (game.distance / METERS_PER_KM).toFixed(2) + ' / 42 km');
 
   const avgSpeed = game.finishTime > 0 ? (game.distance / game.finishTime) * 3.6 : 0;
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Avg Speed:', sx, 194);
-  ctx.textAlign = 'right';
-  ctx.fillText(avgSpeed.toFixed(1) + ' km/h', canvas.width / 2 + 140, 194);
+  statLine('Avg Speed:', avgSpeed.toFixed(1) + ' km/h');
 
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Max Speed:', sx, 216);
-  ctx.textAlign = 'right';
-  ctx.fillText((game.maxSpeedReached * 3.6).toFixed(1) + ' km/h', canvas.width / 2 + 140, 216);
-
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Total Steps:', sx, 238);
-  ctx.textAlign = 'right';
-  ctx.fillText(game.totalPresses.toString(), canvas.width / 2 + 140, 238);
-
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Water Stops:', sx, 260);
-  ctx.textAlign = 'right';
-  ctx.fillText(game.pitstopsDrunk + ' / 8', canvas.width / 2 + 140, 260);
-
-  ctx.fillStyle = '#f1faee';
-  ctx.textAlign = 'left';
-  ctx.fillText('Final Stamina:', sx, 282);
-  ctx.textAlign = 'right';
-  ctx.fillText(Math.round(game.stamina) + '%', canvas.width / 2 + 140, 282);
-
-  // Pace per km
   if (game.distance > 0) {
     const paceSeconds = game.finishTime / (game.distance / METERS_PER_KM);
     const paceMins = Math.floor(paceSeconds / 60);
     const paceSecs = Math.floor(paceSeconds % 60);
-    ctx.fillStyle = '#f1faee';
-    ctx.textAlign = 'left';
-    ctx.fillText('Avg Pace:', sx, 298);
-    ctx.textAlign = 'right';
-    ctx.fillText(paceMins + ':' + String(paceSecs).padStart(2, '0') + ' /km', canvas.width / 2 + 140, 298);
+    statLine('Avg Pace:', paceMins + ':' + String(paceSecs).padStart(2, '0') + ' /km');
   }
+
+  statLine('Total Steps:', game.totalPresses.toString());
+  statLine('Water Stops:', game.pitstopsDrunk + ' / 8');
+  statLine('Avg Heart Rate:', Math.round(game.avgHeartRate) + ' bpm', '#e63946');
+  statLine('Max Heart Rate:', Math.round(game.maxHeartRateReached) + ' bpm', '#e63946');
+  statLine('Final Stamina:', Math.round(game.stamina) + '%', game.stamina > 30 ? '#00b894' : '#e17055');
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '14px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Press SPACE to restart', canvas.width / 2, 345);
+  ctx.fillText('Press SPACE to restart', canvas.width / 2, 370);
+}
+
+// ---- NPC System ----
+const NPC_SHIRT_COLORS = ['#2196f3', '#ff9800', '#9c27b0', '#4caf50', '#ff5722', '#00bcd4', '#795548'];
+const NPC_SHORTS_COLORS = ['#1a237e', '#263238', '#3e2723', '#004d40', '#1b1b1b', '#0d47a1', '#4a148c'];
+
+function initNPCs() {
+  game.npcRunners = [];
+  for (let i = 0; i < 7; i++) {
+    const speedFactor = 0.4 + Math.random() * 0.25; // 40-65% of maxSpeed
+    game.npcRunners.push({
+      distance: 0,
+      baseSpeed: game.maxSpeed * speedFactor,
+      speedVariation: 0, // random drift
+      speedTimer: Math.random() * 10,
+      shirtColor: NPC_SHIRT_COLORS[i],
+      shortsColor: NPC_SHORTS_COLORS[i],
+      frame: Math.floor(Math.random() * 4),
+      frameTimer: Math.random(),
+      bobY: 0
+    });
+  }
+
+  game.spectators = [];
+  let meterPos = 200 + Math.random() * 300;
+  while (meterPos < TOTAL_METERS) {
+    game.spectators.push({
+      meterPos: meterPos,
+      side: Math.random() < 0.5 ? -1 : 1, // -1 = above road, 1 = below
+      type: Math.floor(Math.random() * 3), // 0=cheerleader, 1=clapper, 2=photographer
+      color: ['#e91e63', '#3f51b5', '#ff9800', '#4caf50', '#9c27b0'][Math.floor(Math.random() * 5)],
+      animTimer: Math.random() * Math.PI * 2,
+      flashTimer: 0
+    });
+    meterPos += 500 + Math.random() * 300;
+  }
+}
+
+function updateNPCs(dt) {
+  for (const npc of game.npcRunners) {
+    // Speed variation: slow sine drift
+    npc.speedTimer += dt;
+    npc.speedVariation = Math.sin(npc.speedTimer * 0.5) * 0.15;
+    const speed = npc.baseSpeed * (1 + npc.speedVariation);
+    npc.distance += speed * dt;
+
+    // Animation
+    if (speed > 0.3) {
+      npc.frameTimer += dt * speed * 2;
+      if (npc.frameTimer > 1) {
+        npc.frameTimer = 0;
+        npc.frame = (npc.frame + 1) % 4;
+      }
+      npc.bobY = Math.sin(npc.frameTimer * Math.PI) * 2;
+    }
+
+    // Cap at finish
+    if (npc.distance > TOTAL_METERS) npc.distance = TOTAL_METERS;
+  }
+
+  // Update spectator animations
+  for (const spec of game.spectators) {
+    spec.animTimer += dt * 3;
+    // Photographer flash when Iskander is near
+    if (spec.type === 2 && spec.flashTimer <= 0) {
+      const dist = Math.abs(game.distance - spec.meterPos);
+      if (dist < 20) spec.flashTimer = 0.3;
+    }
+    if (spec.flashTimer > 0) spec.flashTimer -= dt;
+  }
+}
+
+function drawNPCRunner(npc) {
+  const screenX = (npc.distance - game.distance) * PIXELS_PER_METER + RUNNER_X;
+  if (screenX < -20 || screenX > canvas.width + 20) return;
+
+  const x = Math.floor(screenX);
+  const baseY = GROUND_Y - 32 + npc.bobY;
+  const frame = npc.frame;
+
+  const skin = '#d4a574';
+  const shoes = '#e0e0e0';
+
+  // Head
+  drawPixelRect(x + 4, baseY, 8, 8, skin);
+  drawPixelRect(x + 4, baseY, 8, 3, '#2b2d42');
+  // Body / shirt
+  drawPixelRect(x + 3, baseY + 8, 10, 10, npc.shirtColor);
+  // Arms
+  const armSwing = frame < 2 ? 1 : -1;
+  drawPixelRect(x + 1, baseY + 8 + armSwing * 2, 3, 6, skin);
+  drawPixelRect(x + 12, baseY + 8 - armSwing * 2, 3, 6, skin);
+  // Shorts
+  drawPixelRect(x + 3, baseY + 18, 5, 4, npc.shortsColor);
+  drawPixelRect(x + 8, baseY + 18, 5, 4, npc.shortsColor);
+  // Legs
+  const legOffset = frame % 2 === 0 ? 3 : -3;
+  drawPixelRect(x + 4 + legOffset, baseY + 22, 4, 8, skin);
+  drawPixelRect(x + 4 + legOffset, baseY + 28, 5, 3, shoes);
+  drawPixelRect(x + 8 - legOffset, baseY + 22, 4, 8, skin);
+  drawPixelRect(x + 8 - legOffset, baseY + 28, 5, 3, shoes);
+}
+
+function drawNPCRunners() {
+  // Sort by distance so farther NPCs are drawn first (behind closer ones)
+  const sorted = [...game.npcRunners].sort((a, b) => a.distance - b.distance);
+  for (const npc of sorted) {
+    drawNPCRunner(npc);
+  }
+}
+
+function drawSpectators() {
+  for (const spec of game.spectators) {
+    const screenX = (spec.meterPos * PIXELS_PER_METER) - game.worldX + RUNNER_X;
+    if (screenX < -20 || screenX > canvas.width + 20) continue;
+
+    const sx = Math.floor(screenX);
+    const sy = spec.side === -1 ? GROUND_Y - 55 : GROUND_Y + 42;
+    const armY = Math.sin(spec.animTimer) * 3;
+
+    if (spec.type === 0) {
+      // Cheerleader with sign
+      drawPixelRect(sx, sy, 6, 6, '#f5c6a0'); // head
+      drawPixelRect(sx - 1, sy + 6, 8, 8, spec.color); // body
+      drawPixelRect(sx, sy + 14, 4, 6, '#1a1a2e'); // legs
+      drawPixelRect(sx + 4, sy + 14, 4, 6, '#1a1a2e');
+      // Arm holding sign (waving)
+      drawPixelRect(sx + 7, sy + 2 + armY, 3, 5, '#f5c6a0');
+      // Sign
+      drawPixelRect(sx + 6, sy - 6 + armY, 14, 8, '#fff');
+      drawPixelRect(sx + 7, sy - 5 + armY, 4, 2, '#e63946');
+      drawPixelRect(sx + 12, sy - 5 + armY, 4, 2, '#e63946');
+    } else if (spec.type === 1) {
+      // Clapping person
+      drawPixelRect(sx, sy, 6, 6, '#f5c6a0'); // head
+      drawPixelRect(sx - 1, sy + 6, 8, 8, spec.color); // body
+      drawPixelRect(sx, sy + 14, 4, 6, '#1a1a2e'); // legs
+      drawPixelRect(sx + 4, sy + 14, 4, 6, '#1a1a2e');
+      // Clapping arms
+      const clap = Math.sin(spec.animTimer * 2) > 0 ? 0 : 3;
+      drawPixelRect(sx - 3, sy + 4, 3, 4, '#f5c6a0');
+      drawPixelRect(sx + 6, sy + 4 + clap, 3, 4, '#f5c6a0');
+    } else {
+      // Photographer
+      drawPixelRect(sx, sy, 6, 6, '#f5c6a0'); // head
+      drawPixelRect(sx - 1, sy + 6, 8, 8, spec.color); // body
+      drawPixelRect(sx, sy + 14, 4, 6, '#1a1a2e'); // legs
+      drawPixelRect(sx + 4, sy + 14, 4, 6, '#1a1a2e');
+      // Camera
+      drawPixelRect(sx + 6, sy + 5, 6, 5, '#333');
+      drawPixelRect(sx + 7, sy + 4, 3, 2, '#555');
+      // Flash
+      if (spec.flashTimer > 0) {
+        ctx.fillStyle = 'rgba(255,255,255,' + (spec.flashTimer / 0.3 * 0.6) + ')';
+        ctx.fillRect(sx - 4, sy - 4, 20, 20);
+      }
+    }
+  }
 }
 
 // ---- Main Loop ----
@@ -1159,6 +1994,7 @@ function gameLoop(timestamp) {
   // Handle state transitions from input
   if (spaceJustPressed && game.state === 'title') {
     spaceJustPressed = false;
+    if (game.npcRunners.length === 0) initNPCs();
     game.state = 'running';
   }
   if (spaceJustPressed && game.state === 'finished') {
@@ -1177,14 +2013,18 @@ function gameLoop(timestamp) {
     drawSky();
     drawBackground();
     drawGround();
+    drawSpectators();
     drawKmMarkers();
+    drawNPCRunners();
     drawRunner();
     drawHUD();
   } else if (game.state === 'finished') {
     drawSky();
     drawBackground();
     drawGround();
+    drawSpectators();
     drawKmMarkers();
+    drawNPCRunners();
     drawRunner();
     drawHUD();
     drawFinish();
@@ -1217,6 +2057,21 @@ function resetGame() {
   game.runner.frameTimer = 0;
   game.runner.bobY = 0;
   game.runner.stepping = false;
+  game.rhythmZoneLow = 0.33;
+  game.rhythmZoneHigh = 0.57;
+  game.rhythmZoneCenter = 0.45;
+  game.rhythmEfficiency = 1.0;
+  game.inRhythmZone = false;
+  game.heartRate = 65;
+  game.heartBeatTimer = 0;
+  game.heartBeatPhase = 0;
+  game.heartScale = 1.0;
+  game.hrZone = 0;
+  game.avgHeartRate = 65;
+  game.hrSamples = 0;
+  game.maxHeartRateReached = 65;
+  game.timeInZone = [0, 0, 0, 0, 0];
+  initNPCs();
 }
 
 // Start
