@@ -1575,7 +1575,7 @@ function drawHUD() {
   const mins = minutes % 60;
 
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
-  ctx.fillRect(10, 10, 200, 110);
+  ctx.fillRect(10, 10, 200, 128);
 
   ctx.fillStyle = '#f1faee';
   ctx.font = '12px monospace';
@@ -1599,6 +1599,10 @@ function drawHUD() {
   ctx.fillRect(90, 92, 100, 12);
   ctx.fillStyle = '#6c5ce7';
   ctx.fillRect(90, 92, (game.power / game.maxPower) * 100, 12);
+
+  // Score
+  ctx.fillStyle = '#ffeaa7';
+  ctx.fillText('Score: ' + score, 20, 120);
 
   // ---- Heart Rate indicator ----
   const hrX = canvas.width - 120;
@@ -1835,21 +1839,21 @@ function drawTitle() {
   ctx.fillText(isMobile ? 'Water stations every 5 km - tap DRINK' : 'Water stations every 5 km - press D to drink', canvas.width / 2, 238);
   ctx.fillText('No saves. One shot. Pure marathon.', canvas.width / 2, 256);
 
+  // Score display
+  ctx.fillStyle = '#ffeaa7';
+  ctx.font = '13px monospace';
+  ctx.fillText('Score: ' + score, canvas.width / 2, 285);
+  ctx.fillStyle = '#718096';
+  ctx.font = '10px monospace';
+  ctx.fillText('Finish the marathon in time to earn +1 point', canvas.width / 2, 300);
+
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '16px monospace';
-  ctx.fillText(isMobile ? 'Tap RUN to start' : 'Press SPACE to start', canvas.width / 2, 310);
+  ctx.fillText(isMobile ? 'Tap RUN to start' : 'Press SPACE to start', canvas.width / 2, 335);
 
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 350);
-
-  // Score display
-  if (score > 0) {
-    ctx.fillStyle = '#ffeaa7';
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText('Marathons finished: ' + score, canvas.width - 20, 25);
-  }
+  ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 360);
 
   // Hidden command input
   if (cmdActive) {
