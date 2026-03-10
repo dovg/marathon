@@ -1,0 +1,60 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body {
+  background: #1a1a2e;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  font-family: monospace;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+canvas {
+  border: 2px solid #333;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+#touch-controls {
+  display: none;
+  width: 100%;
+  max-width: 800px;
+  gap: 8px;
+  padding: 6px 8px;
+}
+#touch-controls button {
+  flex: 1;
+  height: 56px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#btn-run {
+  background: rgba(230,57,70,0.5);
+}
+#btn-run:active, #btn-run.active {
+  background: rgba(230,57,70,0.85);
+  border-color: #e63946;
+}
+#btn-drink {
+  background: rgba(0,184,148,0.4);
+  flex: 0.45 !important;
+}
+#btn-drink:active, #btn-drink.active {
+  background: rgba(0,184,148,0.8);
+  border-color: #00b894;
+}
+@media (hover: none) and (pointer: coarse) {
+  canvas { border: none; }
+  #touch-controls { display: flex; }
+}
