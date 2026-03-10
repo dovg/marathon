@@ -94,6 +94,9 @@ resizeCanvas();
 // ---- Mobile detection ----
 const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
+// ---- Score (persisted in localStorage) ----
+let score = parseInt(localStorage.getItem('iskander_score') || '0', 10);
+
 // ---- Constants ----
 const RACE_DISTANCE_KM = 42;
 const METERS_PER_KM = 1000;
@@ -523,6 +526,10 @@ function update(dt) {
     game.state = 'finished';
     game.finishTime = game.time;
     game.raceResult = game.time <= RACE_TIME_LIMIT ? 'win' : 'lose';
+    if (game.raceResult === 'win') {
+      score++;
+      localStorage.setItem('iskander_score', score);
+    }
   }
 
   // Check DNF - time ran out before finishing
@@ -1836,6 +1843,14 @@ function drawTitle() {
   ctx.font = '10px monospace';
   ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 350);
 
+  // Score display
+  if (score > 0) {
+    ctx.fillStyle = '#ffeaa7';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('Marathons finished: ' + score, canvas.width - 20, 25);
+  }
+
   // Hidden command input
   if (cmdActive) {
     ctx.fillStyle = 'rgba(0,0,0,0.8)';
@@ -1885,7 +1900,7 @@ function drawFinish() {
 
   // Stats box
   ctx.fillStyle = 'rgba(255,255,255,0.06)';
-  ctx.fillRect(canvas.width / 2 - 170, 125, 340, 220);
+  ctx.fillRect(canvas.width / 2 - 170, 125, 340, 240);
 
   ctx.fillStyle = '#f1faee';
   ctx.font = '13px monospace';
@@ -1923,11 +1938,14 @@ function drawFinish() {
   statLine('Avg Heart Rate:', Math.round(game.avgHeartRate) + ' bpm', '#e63946');
   statLine('Max Heart Rate:', Math.round(game.maxHeartRateReached) + ' bpm', '#e63946');
   statLine('Final Stamina:', Math.round(game.stamina) + '%', game.stamina > 30 ? '#00b894' : '#e17055');
+  if (game.raceResult === 'win') {
+    statLine('Marathons finished:', score.toString(), '#ffeaa7');
+  }
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '14px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(isMobile ? 'Tap RUN to restart' : 'Press SPACE to restart', canvas.width / 2, 370);
+  ctx.fillText(isMobile ? 'Tap RUN to restart' : 'Press SPACE to restart', canvas.width / 2, 380);
 }
 
 // ---- NPC System ----
