@@ -101,6 +101,130 @@ const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 // ---- Score (persisted in localStorage) ----
 let score = parseInt(localStorage.getItem('iskander_score') || '0', 10);
 
+// ---- City selector ----
+let selectedCityIndex = 0;
+const CITIES = [
+  {
+    id: 'moscow', name: 'Moscow', subtitle: 'Moscow Marathon',
+    sceneBoundaries: [0, 2, 8, 14, 20, 28, 34, 40, 42],
+    sceneNames: ['Luzhniki Stadium', 'Old City Embankment', 'Kremlin Embankment', 'Moscow City', 'Ulitsa 1905 Goda', 'Kitay-Gorod', 'Embankment Return', 'Luzhniki Finish'],
+    skyPalettes: [
+      ['#2a1a30','#3d2545','#6b4070','#c08090'],
+      ['#1a2a4e','#2a4a7f','#4a7abf','#7ab0df'],
+      ['#16213e','#2a4a7f','#5b86c5','#8ab8e5'],
+      ['#1565c0','#1e88e5','#42a5f5','#90caf9'],
+      ['#1976d2','#2196f3','#64b5f6','#e3f2fd'],
+      ['#1565c0','#2979b5','#5b9bd0','#b0c4de'],
+      ['#2a1a30','#6b3050','#c06040','#e09050'],
+      ['#3a1a20','#7a3030','#d06030','#f0a040'],
+    ],
+    sunPositions: [
+      {x:100,y:250,r:25,show:false},{x:200,y:180,r:22,show:true},
+      {x:350,y:100,r:22,show:true},{x:500,y:60,r:24,show:true},
+      {x:600,y:50,r:26,show:true},{x:650,y:80,r:24,show:true},
+      {x:720,y:180,r:30,show:true},{x:750,y:220,r:35,show:true},
+    ],
+    accentColor: '#e63946',
+  },
+  {
+    id: 'berlin', name: 'Berlin', subtitle: 'Berlin Marathon',
+    sceneBoundaries: [0, 7, 14, 21, 28, 35, 42],
+    sceneNames: ['Brandenburg Gate Start', 'Tiergarten Park', 'Potsdamer Platz', 'East Side Gallery', 'Alexanderplatz', 'Reichstag Finish'],
+    skyPalettes: [
+      ['#1a2a4e','#2a4a7f','#4a7abf','#8ab8e5'],
+      ['#16213e','#2a6a3f','#5baa65','#a0d8a0'],
+      ['#1565c0','#1e88e5','#42a5f5','#90caf9'],
+      ['#1976d2','#2196f3','#64b5f6','#e3f2fd'],
+      ['#1565c0','#2979b5','#5b9bd0','#b0c4de'],
+      ['#2a1a30','#6b3050','#c06040','#e09050'],
+    ],
+    sunPositions: [
+      {x:150,y:160,r:22,show:true},{x:300,y:90,r:22,show:true},
+      {x:450,y:55,r:24,show:true},{x:580,y:60,r:24,show:true},
+      {x:660,y:100,r:26,show:true},{x:730,y:190,r:30,show:true},
+    ],
+    accentColor: '#f0c040',
+  },
+  {
+    id: 'newyork', name: 'New York', subtitle: 'NYC Marathon',
+    sceneBoundaries: [0, 7, 16, 22, 30, 37, 42],
+    sceneNames: ['Verrazzano Bridge', 'Brooklyn', 'Queens', 'Bronx & Harlem', 'Central Park', 'Times Square Finish'],
+    skyPalettes: [
+      ['#1a2a4e','#2a4a7f','#5580b0','#90b8df'],
+      ['#16213e','#2a4a7f','#5b86c5','#8ab8e5'],
+      ['#1565c0','#1e88e5','#42a5f5','#90caf9'],
+      ['#1976d2','#2196f3','#64b5f6','#e3f2fd'],
+      ['#16213e','#2a6a3f','#5baa65','#a0d8a0'],
+      ['#2a1a30','#5a2050','#a05060','#d08070'],
+    ],
+    sunPositions: [
+      {x:180,y:150,r:22,show:true},{x:300,y:100,r:22,show:true},
+      {x:450,y:55,r:24,show:true},{x:580,y:55,r:26,show:true},
+      {x:660,y:90,r:24,show:true},{x:740,y:180,r:30,show:true},
+    ],
+    accentColor: '#1e88e5',
+  },
+  {
+    id: 'london', name: 'London', subtitle: 'London Marathon',
+    sceneBoundaries: [0, 7, 14, 21, 28, 35, 42],
+    sceneNames: ['Greenwich', 'Tower Bridge', 'Canary Wharf', 'Thames Embankment', 'Westminster', 'Buckingham Palace'],
+    skyPalettes: [
+      ['#3a4a5a','#5a6a7a','#7a8a9a','#9aacbc'],
+      ['#3a4a5a','#506070','#708090','#a0b0c0'],
+      ['#2a3a4a','#4a5a6a','#6a7a8a','#8a9aaa'],
+      ['#3a4a5a','#5a6a7a','#7a8a9a','#b0c0d0'],
+      ['#3a4050','#5a5a6a','#7a7a8a','#a0a0b0'],
+      ['#4a4050','#6a5060','#9a7070','#c0a090'],
+    ],
+    sunPositions: [
+      {x:200,y:200,r:30,show:true},{x:300,y:160,r:28,show:true},
+      {x:400,y:140,r:26,show:false},{x:500,y:120,r:28,show:true},
+      {x:600,y:160,r:30,show:true},{x:700,y:200,r:32,show:true},
+    ],
+    accentColor: '#c0392b',
+  },
+  {
+    id: 'boston', name: 'Boston', subtitle: 'Boston Marathon',
+    sceneBoundaries: [0, 7, 16, 22, 30, 37, 42],
+    sceneNames: ['Hopkinton Start', 'Ashland & Framingham', 'Wellesley College', 'Newton / Heartbreak Hill', 'Brookline', 'Boylston Street Finish'],
+    skyPalettes: [
+      ['#1a2a4e','#2a5a5f','#4a9a7f','#8ad0a0'],
+      ['#16213e','#2a4a7f','#5b86c5','#8ab8e5'],
+      ['#1565c0','#1e88e5','#42a5f5','#90caf9'],
+      ['#1976d2','#2196f3','#64b5f6','#e3f2fd'],
+      ['#1565c0','#2979b5','#5b9bd0','#b0c4de'],
+      ['#2a2a30','#5a4050','#a06060','#d09070'],
+    ],
+    sunPositions: [
+      {x:150,y:170,r:22,show:true},{x:280,y:100,r:22,show:true},
+      {x:420,y:55,r:24,show:true},{x:550,y:50,r:26,show:true},
+      {x:660,y:80,r:24,show:true},{x:740,y:170,r:30,show:true},
+    ],
+    accentColor: '#f0c040',
+  },
+  {
+    id: 'singapore', name: 'Singapore', subtitle: 'Singapore Marathon',
+    sceneBoundaries: [0, 7, 14, 21, 28, 35, 42],
+    sceneNames: ['Padang Colonial District', 'Marina Bay', 'Gardens by the Bay', 'East Coast Park', 'Chinatown', 'Marina Bay Sands Finish'],
+    skyPalettes: [
+      ['#0a1628','#1a2a48','#3a5a88','#6a90c0'],
+      ['#1a2a4e','#2a4a7f','#4a7abf','#7ab0df'],
+      ['#0a3a2a','#1a5a4a','#3a8a6a','#6ac0a0'],
+      ['#1565c0','#1e88e5','#42a5f5','#90caf9'],
+      ['#3a1a20','#6a3030','#b05040','#e08060'],
+      ['#1a0a28','#3a1a48','#6a3a78','#a060a0'],
+    ],
+    sunPositions: [
+      {x:180,y:180,r:28,show:true},{x:350,y:80,r:26,show:true},
+      {x:500,y:55,r:28,show:true},{x:600,y:60,r:26,show:true},
+      {x:700,y:150,r:30,show:true},{x:750,y:210,r:35,show:true},
+    ],
+    accentColor: '#e63946',
+  },
+];
+
+function getCity() { return CITIES[selectedCityIndex]; }
+
 // ---- Constants ----
 const RACE_DISTANCE_KM = 42;
 const METERS_PER_KM = 1000;
@@ -236,6 +360,17 @@ document.addEventListener('keydown', (e) => {
     return;
   }
 
+  // City selector on title screen
+  if (game.state === 'title' && (e.code === 'ArrowLeft' || e.code === 'ArrowRight')) {
+    e.preventDefault();
+    if (e.code === 'ArrowLeft') {
+      selectedCityIndex = (selectedCityIndex - 1 + CITIES.length) % CITIES.length;
+    } else {
+      selectedCityIndex = (selectedCityIndex + 1) % CITIES.length;
+    }
+    return;
+  }
+
   if (e.code === 'Space') {
     e.preventDefault();
     if (!keys['Space']) {
@@ -293,9 +428,22 @@ btnDrink.addEventListener('touchend', (e) => {
   btnDrink.classList.remove('active');
 });
 
-// Prevent default touch behaviors on canvas
-canvas.addEventListener('touchstart', (e) => e.preventDefault());
+// Prevent default touch behaviors on canvas + swipe for city select
+let touchStartX = 0;
+canvas.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  touchStartX = e.touches[0].clientX;
+});
 canvas.addEventListener('touchmove', (e) => e.preventDefault());
+canvas.addEventListener('touchend', (e) => {
+  if (game.state === 'title' && e.changedTouches.length > 0) {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 40) {
+      if (dx < 0) selectedCityIndex = (selectedCityIndex + 1) % CITIES.length;
+      else selectedCityIndex = (selectedCityIndex - 1 + CITIES.length) % CITIES.length;
+    }
+  }
+});
 
 // ---- Press frequency tracking ----
 function registerPress() {
@@ -611,31 +759,22 @@ function drawRunner() {
   }
 }
 
-// ---- Scene system: Real Moscow Marathon route ----
-// Scene 0 (0-2 km): Luzhniki Stadium — start
-// Scene 1 (2-8 km): Embankment + Old City
-// Scene 2 (8-14 km): Embankment + Kremlin
-// Scene 3 (14-20 km): Moscow City skyscrapers
-// Scene 4 (20-28 km): Ulitsa 1905 Goda
-// Scene 5 (28-34 km): Kitay-Gorod
-// Scene 6 (34-40 km): Embankment return
-// Scene 7 (40-42 km): Luzhniki Stadium — finish
-
-const SCENE_BOUNDARIES = [0, 2, 8, 14, 20, 28, 34, 40, 42];
-
+// ---- Scene system ----
 function getCurrentScene() {
   const km = game.distance / METERS_PER_KM;
-  for (let i = SCENE_BOUNDARIES.length - 2; i >= 0; i--) {
-    if (km >= SCENE_BOUNDARIES[i]) return i;
+  const boundaries = getCity().sceneBoundaries;
+  for (let i = boundaries.length - 2; i >= 0; i--) {
+    if (km >= boundaries[i]) return i;
   }
   return 0;
 }
 
 function getSceneBlend() {
   const km = game.distance / METERS_PER_KM;
-  const tw = 1; // 1km transition width
-  for (let i = 1; i < SCENE_BOUNDARIES.length - 1; i++) {
-    const b = SCENE_BOUNDARIES[i];
+  const boundaries = getCity().sceneBoundaries;
+  const tw = 1;
+  for (let i = 1; i < boundaries.length - 1; i++) {
+    const b = boundaries[i];
     if (km >= b - tw && km < b + tw) {
       return km < b
         ? (km - (b - tw)) / tw
@@ -647,6 +786,11 @@ function getSceneBlend() {
 
 // ---- Draw Ground ----
 function drawGround() {
+  const city = getCity();
+  if (city.id !== 'moscow') {
+    drawGroundGeneric();
+    return;
+  }
   const scene = getCurrentScene();
 
   // Ground base
@@ -744,38 +888,19 @@ function drawGround() {
 
 // ---- Draw Sky ----
 function drawSky() {
+  const city = getCity();
   const scene = getCurrentScene();
-  const skyPalettes = [
-    ['#2a1a30', '#3d2545', '#6b4070', '#c08090'],  // 0: Dawn pink-grey
-    ['#1a2a4e', '#2a4a7f', '#4a7abf', '#7ab0df'],  // 1: Early morning blue
-    ['#16213e', '#2a4a7f', '#5b86c5', '#8ab8e5'],  // 2: Morning
-    ['#1565c0', '#1e88e5', '#42a5f5', '#90caf9'],  // 3: Late morning
-    ['#1976d2', '#2196f3', '#64b5f6', '#e3f2fd'],  // 4: Midday bright
-    ['#1565c0', '#2979b5', '#5b9bd0', '#b0c4de'],  // 5: Afternoon
-    ['#2a1a30', '#6b3050', '#c06040', '#e09050'],  // 6: Late afternoon/sunset
-    ['#3a1a20', '#7a3030', '#d06030', '#f0a040'],  // 7: Sunset/golden
-  ];
-  const colors = skyPalettes[scene];
+  const colors = city.skyPalettes[scene] || city.skyPalettes[0];
   const bandH = 80;
   for (let i = 0; i < colors.length; i++) {
     ctx.fillStyle = colors[i];
     ctx.fillRect(0, i * bandH, canvas.width, bandH);
   }
 
-  // Sun position progresses across scenes (left to right over the day)
-  const sunPositions = [
-    { x: 100, y: 250, r: 25, show: false },  // 0: dawn, sun below horizon
-    { x: 200, y: 180, r: 22, show: true },    // 1: early morning, low east
-    { x: 350, y: 100, r: 22, show: true },    // 2: morning, rising
-    { x: 500, y: 60,  r: 24, show: true },    // 3: late morning, high
-    { x: 600, y: 50,  r: 26, show: true },    // 4: midday, highest
-    { x: 650, y: 80,  r: 24, show: true },    // 5: afternoon, descending
-    { x: 720, y: 180, r: 30, show: true },    // 6: sunset, low west
-    { x: 750, y: 220, r: 35, show: true },    // 7: golden, near horizon
-  ];
-  const sun = sunPositions[scene];
+  const sun = city.sunPositions[scene] || city.sunPositions[0];
   if (sun.show) {
-    const isLow = scene >= 6;
+    const totalScenes = city.sceneBoundaries.length - 1;
+    const isLow = scene >= totalScenes - 2;
     ctx.fillStyle = isLow ? '#ff7043' : '#fff59d';
     ctx.beginPath();
     ctx.arc(sun.x, sun.y, sun.r, 0, Math.PI * 2);
@@ -787,27 +912,47 @@ function drawSky() {
     ctx.fill();
     ctx.globalAlpha = 1;
   }
-  // Dawn glow for scene 0
-  if (scene === 0) {
+  // Dawn glow for first scene (Moscow only)
+  if (scene === 0 && city.id === 'moscow') {
     ctx.fillStyle = '#d4758080';
     ctx.fillRect(0, 240, canvas.width, 80);
+  }
+  // Singapore: tropical haze
+  if (city.id === 'singapore') {
+    ctx.fillStyle = 'rgba(200,220,240,0.08)';
+    ctx.fillRect(0, 200, canvas.width, 120);
+  }
+  // London: overcast filter
+  if (city.id === 'london') {
+    ctx.fillStyle = 'rgba(150,160,170,0.12)';
+    ctx.fillRect(0, 0, canvas.width, 320);
   }
 }
 
 // ---- Draw Background (delegates to current scene) ----
 function drawBackground() {
+  const city = getCity();
   const scene = getCurrentScene();
   const parallax = game.worldX * 0.15;
 
-  switch (scene) {
-    case 0: drawLuzhniki(parallax, false); break;
-    case 1: drawOldCityEmbankment(parallax); break;
-    case 2: drawKremlinEmbankment(parallax); break;
-    case 3: drawMoscowCity(parallax); break;
-    case 4: drawUlitsa1905(parallax); break;
-    case 5: drawKitayGorod(parallax); break;
-    case 6: drawEmbankmentReturn(parallax); break;
-    case 7: drawLuzhniki(parallax, true); break;
+  switch (city.id) {
+    case 'moscow':
+      switch (scene) {
+        case 0: drawLuzhniki(parallax, false); break;
+        case 1: drawOldCityEmbankment(parallax); break;
+        case 2: drawKremlinEmbankment(parallax); break;
+        case 3: drawMoscowCity(parallax); break;
+        case 4: drawUlitsa1905(parallax); break;
+        case 5: drawKitayGorod(parallax); break;
+        case 6: drawEmbankmentReturn(parallax); break;
+        case 7: drawLuzhniki(parallax, true); break;
+      }
+      break;
+    case 'berlin': drawBerlinScene(scene, parallax); break;
+    case 'newyork': drawNewYorkScene(scene, parallax); break;
+    case 'london': drawLondonScene(scene, parallax); break;
+    case 'boston': drawBostonScene(scene, parallax); break;
+    case 'singapore': drawSingaporeScene(scene, parallax); break;
   }
 }
 
@@ -1467,6 +1612,1215 @@ function drawEmbankmentReturn(parallax) {
   ctx.fillRect(0, GROUND_Y - 25, canvas.width, 2);
 }
 
+// ---- Generic ground for non-Moscow cities ----
+function drawGroundGeneric() {
+  const city = getCity();
+  const scene = getCurrentScene();
+  ctx.fillStyle = '#4a5568';
+  ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+
+  if (city.id === 'berlin') {
+    if (scene === 1) {
+      // Park path
+      ctx.fillStyle = '#8a7a60';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#9a8a70';
+      const off = -(game.worldX % 20);
+      for (let x = off - 20; x < canvas.width + 20; x += 20) {
+        ctx.fillRect(Math.floor(x), GROUND_Y + 2, 18, 10);
+      }
+    } else {
+      // Clean European asphalt
+      ctx.fillStyle = '#505050';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#e2e8f0';
+      const ms = 60;
+      const off = -(game.worldX % ms);
+      for (let i = off; i < canvas.width + ms; i += ms) {
+        ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+      }
+    }
+  } else if (city.id === 'newyork') {
+    if (scene === 0) {
+      // Bridge road
+      ctx.fillStyle = '#3a3a3a';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#ffd600';
+      ctx.fillRect(0, GROUND_Y + 18, canvas.width, 2);
+    } else if (scene === 4) {
+      // Central Park path
+      ctx.fillStyle = '#7a7060';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+    } else {
+      // NYC asphalt with yellow center
+      ctx.fillStyle = '#3a3a3a';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#ffd600';
+      ctx.fillRect(0, GROUND_Y + 19, canvas.width, 2);
+      ctx.fillStyle = '#e2e8f0';
+      const ms = 60;
+      const off = -(game.worldX % ms);
+      for (let i = off; i < canvas.width + ms; i += ms) {
+        ctx.fillRect(Math.floor(i), GROUND_Y + 8, 20, 3);
+      }
+    }
+  } else if (city.id === 'london') {
+    // British tarmac
+    ctx.fillStyle = '#484848';
+    ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+    ctx.fillStyle = '#e2e8f0';
+    const ms = 60;
+    const off = -(game.worldX % ms);
+    for (let i = off; i < canvas.width + ms; i += ms) {
+      ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+    }
+    // Red lane marking (London marathon)
+    ctx.fillStyle = '#c0392b';
+    ctx.fillRect(0, GROUND_Y + 2, canvas.width, 2);
+    ctx.fillRect(0, GROUND_Y + 36, canvas.width, 2);
+  } else if (city.id === 'boston') {
+    if (scene <= 2) {
+      // Suburban road
+      ctx.fillStyle = '#505050';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#e2e8f0';
+      const ms = 60;
+      const off = -(game.worldX % ms);
+      for (let i = off; i < canvas.width + ms; i += ms) {
+        ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+      }
+    } else if (scene === 3) {
+      // Hilly asphalt
+      ctx.fillStyle = '#484848';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      // Blue/yellow Boston marathon line
+      ctx.fillStyle = '#f0c040';
+      ctx.fillRect(0, GROUND_Y + 19, canvas.width, 2);
+    } else {
+      // City road
+      ctx.fillStyle = '#404040';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#f0c040';
+      ctx.fillRect(0, GROUND_Y + 19, canvas.width, 2);
+      ctx.fillStyle = '#e2e8f0';
+      const ms = 60;
+      const off = -(game.worldX % ms);
+      for (let i = off; i < canvas.width + ms; i += ms) {
+        ctx.fillRect(Math.floor(i), GROUND_Y + 8, 20, 3);
+      }
+    }
+  } else if (city.id === 'singapore') {
+    if (scene === 3) {
+      // Beach boardwalk
+      ctx.fillStyle = '#c0a878';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#d0b888';
+      const off = -(game.worldX % 16);
+      for (let x = off - 16; x < canvas.width + 16; x += 16) {
+        ctx.fillRect(Math.floor(x), GROUND_Y + 2, 14, 6);
+      }
+    } else {
+      // Clean modern asphalt
+      ctx.fillStyle = '#454545';
+      ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+      ctx.fillStyle = '#e2e8f0';
+      const ms = 60;
+      const off = -(game.worldX % ms);
+      for (let i = off; i < canvas.width + ms; i += ms) {
+        ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+      }
+    }
+  }
+  // Sidewalk edge
+  ctx.fillStyle = '#9e9e9e';
+  ctx.fillRect(0, GROUND_Y + 38, canvas.width, 2);
+}
+
+// ======== BERLIN SCENES ========
+function drawBerlinScene(scene, parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  switch (scene) {
+    case 0: { // Brandenburg Gate / Unter den Linden
+      // Linden trees lining the avenue
+      const treeSp = 120;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const bx = Math.floor(tx);
+        if (bx < -40 || bx > canvas.width + 40) continue;
+        ctx.fillStyle = '#4a3520';
+        ctx.fillRect(bx + 8, GROUND_Y - 60, 4, 60);
+        ctx.fillStyle = '#2d6b2e';
+        ctx.beginPath();
+        ctx.arc(bx + 10, GROUND_Y - 70, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3a8a3b';
+        ctx.beginPath();
+        ctx.arc(bx + 10, GROUND_Y - 75, 12, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Brandenburg Gate
+      const gateOff = -(farP % 2000);
+      for (let gx = gateOff; gx < canvas.width + 2000; gx += 2000) {
+        const bx = Math.floor(gx + 400);
+        if (bx < -100 || bx > canvas.width + 100) continue;
+        // Columns
+        ctx.fillStyle = '#c8b898';
+        for (let c = 0; c < 6; c++) {
+          ctx.fillRect(bx - 50 + c * 20, GROUND_Y - 160, 8, 120);
+        }
+        // Top beam
+        ctx.fillStyle = '#d0c8a0';
+        ctx.fillRect(bx - 55, GROUND_Y - 165, 110, 12);
+        ctx.fillRect(bx - 55, GROUND_Y - 40, 110, 5);
+        // Quadriga on top
+        ctx.fillStyle = '#c0a850';
+        ctx.fillRect(bx - 15, GROUND_Y - 185, 30, 18);
+        ctx.fillRect(bx - 5, GROUND_Y - 195, 10, 12);
+      }
+      break;
+    }
+    case 1: { // Tiergarten Park
+      // Dense trees
+      const treeSp = 60;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const bx = Math.floor(tx);
+        if (bx < -30 || bx > canvas.width + 30) continue;
+        const h = 50 + ((bx * 7) & 0x1F);
+        ctx.fillStyle = '#3a2a18';
+        ctx.fillRect(bx + 6, GROUND_Y - h, 4, h);
+        ctx.fillStyle = '#1a6a20';
+        ctx.beginPath();
+        ctx.arc(bx + 8, GROUND_Y - h - 10, 22, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2a8a30';
+        ctx.beginPath();
+        ctx.arc(bx + 12, GROUND_Y - h - 5, 15, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Victory Column in distance
+      const colOff = -(farP % 3000);
+      for (let cx = colOff; cx < canvas.width + 3000; cx += 3000) {
+        const bx = Math.floor(cx + 800);
+        if (bx < -20 || bx > canvas.width + 20) continue;
+        ctx.fillStyle = '#8a7a60';
+        ctx.fillRect(bx - 8, GROUND_Y - 200, 16, 160);
+        ctx.fillStyle = '#ffd700';
+        ctx.beginPath();
+        ctx.arc(bx, GROUND_Y - 210, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 2: { // Potsdamer Platz - modern buildings
+      const bldgSp = 100;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const h = 120 + ((x * 13) & 0x7F);
+        const w = 30 + ((x * 7) & 0x1F);
+        ctx.fillStyle = ['#37474f','#455a64','#546e7a'][(x & 0xFF) % 3];
+        ctx.fillRect(x, GROUND_Y - h, w, h);
+        ctx.fillStyle = '#78909c';
+        for (let wy = GROUND_Y - h + 6; wy < GROUND_Y - 4; wy += 8) {
+          ctx.fillRect(x + 2, wy, w - 4, 3);
+        }
+      }
+      // Sony Center dome hint
+      const domeOff = -(farP % 2500);
+      for (let dx = domeOff; dx < canvas.width + 2500; dx += 2500) {
+        const x = Math.floor(dx + 600);
+        if (x < -80 || x > canvas.width + 80) continue;
+        ctx.strokeStyle = '#78909c';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 100, 60, Math.PI, 0);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(120,144,156,0.2)';
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 100, 60, Math.PI, 0);
+        ctx.fill();
+      }
+      break;
+    }
+    case 3: { // East Side Gallery / Berlin Wall
+      // Wall segments
+      const wallSp = 80;
+      const wallOff = -(midP % wallSp);
+      const wallColors = ['#e63946','#1e88e5','#ffd600','#4caf50','#9c27b0','#ff9800'];
+      for (let wx = wallOff - wallSp; wx < canvas.width + wallSp; wx += wallSp) {
+        const x = Math.floor(wx);
+        if (x < -50 || x > canvas.width + 50) continue;
+        // Wall segment
+        ctx.fillStyle = '#b0b0b0';
+        ctx.fillRect(x, GROUND_Y - 80, 70, 80);
+        // "Art" - colored rectangles
+        const ci = ((x * 7) & 0xFF) % wallColors.length;
+        ctx.fillStyle = wallColors[ci] + 'cc';
+        ctx.fillRect(x + 4, GROUND_Y - 74, 62, 68);
+        // Abstract shapes
+        ctx.fillStyle = wallColors[(ci + 2) % wallColors.length] + 'aa';
+        ctx.fillRect(x + 10, GROUND_Y - 60, 20, 30);
+        ctx.beginPath();
+        ctx.arc(x + 45, GROUND_Y - 50, 12, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Spree river behind
+      ctx.fillStyle = '#1565c0';
+      ctx.fillRect(0, GROUND_Y - 100, canvas.width, 20);
+      ctx.fillStyle = '#1e88e5';
+      const waveOff = -(farP * 0.5) % 40;
+      for (let wx = waveOff - 40; wx < canvas.width + 40; wx += 40) {
+        ctx.fillRect(Math.floor(wx), GROUND_Y - 95, 20, 3);
+      }
+      break;
+    }
+    case 4: { // Alexanderplatz / TV Tower
+      // Buildings
+      const bldgSp = 120;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const h = 80 + ((x * 11) & 0x3F);
+        ctx.fillStyle = '#607d8b';
+        ctx.fillRect(x, GROUND_Y - h, 50, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 8; wy < GROUND_Y - 8; wy += 14) {
+          for (let wx = x + 4; wx < x + 46; wx += 10) {
+            if (((wx * 11 + wy * 7) & 0xF) < 5)
+              ctx.fillRect(wx, wy, 6, 8);
+          }
+        }
+      }
+      // TV Tower (Fernsehturm)
+      const tvOff = -(farP * 0.5 % 3000);
+      for (let tx = tvOff; tx < canvas.width + 3000; tx += 3000) {
+        const x = Math.floor(tx + 500);
+        if (x < -30 || x > canvas.width + 30) continue;
+        ctx.fillStyle = '#90a4ae';
+        ctx.fillRect(x - 2, GROUND_Y - 280, 4, 240);
+        // Sphere
+        ctx.fillStyle = '#b0bec5';
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 220, 18, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.arc(x - 5, GROUND_Y - 225, 8, 0, Math.PI * 2);
+        ctx.fill();
+        // Antenna
+        ctx.fillStyle = '#78909c';
+        ctx.fillRect(x - 1, GROUND_Y - 300, 2, 22);
+      }
+      break;
+    }
+    case 5: { // Reichstag Finish
+      // Reichstag building
+      const reichOff = -(farP % 2500);
+      for (let rx = reichOff; rx < canvas.width + 2500; rx += 2500) {
+        const x = Math.floor(rx + 500);
+        if (x < -120 || x > canvas.width + 120) continue;
+        ctx.fillStyle = '#c8c0a8';
+        ctx.fillRect(x - 80, GROUND_Y - 120, 160, 120);
+        // Columns
+        ctx.fillStyle = '#d8d0b8';
+        for (let c = 0; c < 6; c++) {
+          ctx.fillRect(x - 70 + c * 28, GROUND_Y - 130, 8, 100);
+        }
+        // Pediment
+        ctx.fillStyle = '#d0c8a0';
+        ctx.beginPath();
+        ctx.moveTo(x - 85, GROUND_Y - 130);
+        ctx.lineTo(x, GROUND_Y - 160);
+        ctx.lineTo(x + 85, GROUND_Y - 130);
+        ctx.fill();
+        // Glass dome
+        ctx.strokeStyle = '#a0c0d0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 160, 30, Math.PI, 0);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(160,192,208,0.25)';
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 160, 30, Math.PI, 0);
+        ctx.fill();
+        // "DEM DEUTSCHEN VOLKE"
+        ctx.fillStyle = '#8a8070';
+        ctx.font = '6px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('DEM DEUTSCHEN VOLKE', x, GROUND_Y - 132);
+      }
+      // Finish banners
+      ctx.fillStyle = 'rgba(240,192,64,0.9)';
+      ctx.fillRect(canvas.width / 2 - 100, GROUND_Y - 50, 200, 18);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BERLIN MARATHON', canvas.width / 2, GROUND_Y - 37);
+      break;
+    }
+  }
+}
+
+// ======== NEW YORK SCENES ========
+function drawNewYorkScene(scene, parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  switch (scene) {
+    case 0: { // Verrazzano Bridge
+      // Bridge cables
+      ctx.strokeStyle = '#607d8b';
+      ctx.lineWidth = 3;
+      // Two towers
+      ctx.fillStyle = '#546e7a';
+      ctx.fillRect(200, GROUND_Y - 200, 16, 200);
+      ctx.fillRect(580, GROUND_Y - 200, 16, 200);
+      // Main cables
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#78909c';
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND_Y - 60);
+      ctx.quadraticCurveTo(208, GROUND_Y - 200, 400, GROUND_Y - 60);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(400, GROUND_Y - 60);
+      ctx.quadraticCurveTo(588, GROUND_Y - 200, 800, GROUND_Y - 60);
+      ctx.stroke();
+      // Vertical cables
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#90a4ae';
+      for (let cx = 50; cx < 800; cx += 40) {
+        const towerX = cx < 400 ? 208 : 588;
+        const baseX = cx < 400 ? 0 : 400;
+        const t = (cx - baseX) / 400;
+        const cableY = GROUND_Y - 60 - (cx < 400
+          ? Math.sin(t * Math.PI) * 140
+          : Math.sin(t * Math.PI) * 140);
+        ctx.beginPath();
+        ctx.moveTo(cx, GROUND_Y - 40);
+        ctx.lineTo(cx, cableY);
+        ctx.stroke();
+      }
+      // Water below
+      ctx.fillStyle = '#0d47a1';
+      ctx.fillRect(0, GROUND_Y - 15, canvas.width, 15);
+      break;
+    }
+    case 1: { // Brooklyn - brownstones
+      const houseSp = 90;
+      const houseOff = -(midP % houseSp);
+      const houseColors = ['#8b5e3c','#7a5230','#9a6840','#6a4a28','#a07848'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const ci = ((x * 7) & 0xFF) % houseColors.length;
+        const h = 90 + (ci % 3) * 15;
+        ctx.fillStyle = houseColors[ci];
+        ctx.fillRect(x, GROUND_Y - h, 70, h);
+        // Stoops
+        ctx.fillStyle = '#9a8a7a';
+        ctx.fillRect(x + 25, GROUND_Y - 20, 20, 20);
+        // Windows
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 25; wy += 18) {
+          for (let wx = x + 6; wx < x + 64; wx += 16) {
+            ctx.fillRect(wx, wy, 8, 10);
+          }
+        }
+        // Cornice
+        ctx.fillStyle = '#c0a888';
+        ctx.fillRect(x - 2, GROUND_Y - h, 74, 4);
+      }
+      break;
+    }
+    case 2: { // Queens
+      const bldgSp = 130;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -70 || x > canvas.width + 70) continue;
+        const h = 70 + ((x * 11) & 0x3F);
+        const w = 50 + ((x * 3) & 0x1F);
+        ctx.fillStyle = ['#607d8b','#546e7a','#78909c'][(x & 0xFF) % 3];
+        ctx.fillRect(x, GROUND_Y - h, w, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 8; wy < GROUND_Y - 8; wy += 14) {
+          for (let wx = x + 4; wx < x + w - 4; wx += 10) {
+            if (((wx * 11 + wy * 7) & 0xF) < 4)
+              ctx.fillRect(wx, wy, 5, 7);
+          }
+        }
+      }
+      break;
+    }
+    case 3: { // Bronx & Harlem
+      const houseSp = 100;
+      const houseOff = -(midP % houseSp);
+      const colors = ['#8b4513','#a0522d','#6b3410','#cd853f'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const ci = ((x * 7) & 0xFF) % colors.length;
+        const h = 80 + (ci % 2) * 20;
+        ctx.fillStyle = colors[ci];
+        ctx.fillRect(x, GROUND_Y - h, 80, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 16) {
+          for (let wx = x + 6; wx < x + 74; wx += 14) {
+            ctx.fillRect(wx, wy, 6, 8);
+          }
+        }
+      }
+      // Fire escapes
+      ctx.fillStyle = '#333';
+      const feOff = -(midP % 200);
+      for (let fx = feOff; fx < canvas.width + 200; fx += 200) {
+        const x = Math.floor(fx + 30);
+        if (x < -20 || x > canvas.width + 20) continue;
+        for (let fy = GROUND_Y - 70; fy < GROUND_Y - 10; fy += 20) {
+          ctx.fillRect(x, fy, 15, 2);
+          ctx.fillRect(x, fy, 2, 20);
+          ctx.fillRect(x + 13, fy, 2, 20);
+        }
+      }
+      break;
+    }
+    case 4: { // Central Park
+      // Dense park trees
+      const treeSp = 50;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx);
+        if (x < -30 || x > canvas.width + 30) continue;
+        const h = 60 + ((x * 7) & 0x1F);
+        ctx.fillStyle = '#3a2a18';
+        ctx.fillRect(x + 8, GROUND_Y - h, 4, h);
+        const leafColors = ['#1a6a20','#2a8a30','#1a5a18'];
+        ctx.fillStyle = leafColors[((x * 3) & 0xFF) % 3];
+        ctx.beginPath();
+        ctx.arc(x + 10, GROUND_Y - h - 12, 20, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Manhattan skyline in far background
+      ctx.fillStyle = '#546e7a';
+      const skyOff = -(farP * 0.3 % 600);
+      const skyH = [100,140,200,120,180,160,220,110,150,190];
+      for (let i = 0; i < skyH.length; i++) {
+        const x = Math.floor(skyOff + i * 60);
+        if (x > -40 && x < canvas.width + 40) {
+          ctx.globalAlpha = 0.3;
+          ctx.fillRect(x, GROUND_Y - skyH[i] - 50, 40, skyH[i]);
+          ctx.globalAlpha = 1;
+        }
+      }
+      break;
+    }
+    case 5: { // Times Square Finish
+      // Tall buildings with neon signs
+      const bldgSp = 80;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -50 || x > canvas.width + 50) continue;
+        const h = 160 + ((x * 13) & 0x7F);
+        ctx.fillStyle = '#37474f';
+        ctx.fillRect(x, GROUND_Y - h, 60, h);
+        // Neon signs
+        const neonColors = ['#ff1744','#00e676','#2979ff','#ffd600','#e040fb'];
+        const ni = ((x * 7) & 0xFF) % neonColors.length;
+        ctx.fillStyle = neonColors[ni];
+        ctx.fillRect(x + 5, GROUND_Y - h + 20, 50, 25);
+        ctx.fillStyle = neonColors[(ni+2)%neonColors.length];
+        ctx.fillRect(x + 5, GROUND_Y - h + 55, 50, 20);
+        // Windows
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 85; wy < GROUND_Y - 8; wy += 12) {
+          for (let wx = x + 4; wx < x + 56; wx += 10) {
+            if (((wx * 11 + wy * 7) & 0xF) < 5)
+              ctx.fillRect(wx, wy, 5, 6);
+          }
+        }
+      }
+      // Finish banner
+      ctx.fillStyle = 'rgba(30,136,229,0.9)';
+      ctx.fillRect(canvas.width / 2 - 100, GROUND_Y - 50, 200, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('NYC MARATHON', canvas.width / 2, GROUND_Y - 37);
+      break;
+    }
+  }
+}
+
+// ======== LONDON SCENES ========
+function drawLondonScene(scene, parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  switch (scene) {
+    case 0: { // Greenwich
+      // Georgian houses
+      const houseSp = 100;
+      const houseOff = -(midP % houseSp);
+      const colors = ['#d8c8a8','#e8d8b8','#c8b898','#e0d0b0'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const ci = ((x * 7) & 0xFF) % colors.length;
+        ctx.fillStyle = colors[ci];
+        ctx.fillRect(x, GROUND_Y - 90, 80, 90);
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(x - 2, GROUND_Y - 94, 84, 6);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 80; wy < GROUND_Y - 10; wy += 18) {
+          for (let wx = x + 6; wx < x + 74; wx += 16) {
+            ctx.fillRect(wx, wy, 8, 10);
+          }
+        }
+        ctx.fillStyle = '#c0392b';
+        ctx.fillRect(x + 32, GROUND_Y - 22, 14, 22);
+      }
+      // Cutty Sark ship masts
+      const shipOff = -(farP % 3000);
+      for (let sx = shipOff; sx < canvas.width + 3000; sx += 3000) {
+        const x = Math.floor(sx + 600);
+        if (x < -40 || x > canvas.width + 40) continue;
+        ctx.fillStyle = '#5d4037';
+        ctx.fillRect(x - 1, GROUND_Y - 180, 3, 140);
+        ctx.fillRect(x + 20, GROUND_Y - 160, 3, 120);
+        ctx.fillRect(x - 22, GROUND_Y - 160, 3, 120);
+        // Hull
+        ctx.fillStyle = '#2d1f10';
+        ctx.fillRect(x - 35, GROUND_Y - 45, 70, 15);
+      }
+      break;
+    }
+    case 1: { // Tower Bridge
+      // Tower Bridge structure
+      const bridgeOff = -(farP % 2500);
+      for (let bx = bridgeOff; bx < canvas.width + 2500; bx += 2500) {
+        const x = Math.floor(bx + 500);
+        if (x < -150 || x > canvas.width + 150) continue;
+        // Two towers
+        ctx.fillStyle = '#7a8a9a';
+        ctx.fillRect(x - 60, GROUND_Y - 160, 30, 160);
+        ctx.fillRect(x + 30, GROUND_Y - 160, 30, 160);
+        // Tower tops (pointed)
+        ctx.fillStyle = '#5a6a7a';
+        ctx.beginPath();
+        ctx.moveTo(x - 60, GROUND_Y - 160);
+        ctx.lineTo(x - 45, GROUND_Y - 185);
+        ctx.lineTo(x - 30, GROUND_Y - 160);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(x + 30, GROUND_Y - 160);
+        ctx.lineTo(x + 45, GROUND_Y - 185);
+        ctx.lineTo(x + 60, GROUND_Y - 160);
+        ctx.fill();
+        // Upper walkway
+        ctx.fillStyle = '#6a7a8a';
+        ctx.fillRect(x - 60, GROUND_Y - 130, 150, 8);
+        // Road span
+        ctx.fillStyle = '#4a5a6a';
+        ctx.fillRect(x - 100, GROUND_Y - 40, 200, 10);
+        // Cables
+        ctx.strokeStyle = '#8a9aaa';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x - 120, GROUND_Y - 30);
+        ctx.lineTo(x - 45, GROUND_Y - 160);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + 120, GROUND_Y - 30);
+        ctx.lineTo(x + 45, GROUND_Y - 160);
+        ctx.stroke();
+      }
+      // Thames
+      ctx.fillStyle = '#2a5a6a';
+      ctx.fillRect(0, GROUND_Y - 20, canvas.width, 20);
+      break;
+    }
+    case 2: { // Canary Wharf
+      const bldgSp = 90;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -50 || x > canvas.width + 50) continue;
+        const h = 130 + ((x * 13) & 0x7F);
+        const w = 30 + ((x * 7) & 0x1F);
+        ctx.fillStyle = ['#37474f','#455a64','#546e7a'][(x & 0xFF) % 3];
+        ctx.fillRect(x, GROUND_Y - h, w, h);
+        ctx.fillStyle = '#90a4ae';
+        for (let wy = GROUND_Y - h + 6; wy < GROUND_Y - 4; wy += 8) {
+          ctx.fillRect(x + 2, wy, w - 4, 3);
+        }
+        if (h > 180) {
+          ctx.fillStyle = '#ff1744';
+          ctx.fillRect(x + w / 2 - 2, GROUND_Y - h - 15, 4, 15);
+        }
+      }
+      break;
+    }
+    case 3: { // Thames Embankment / London Eye
+      // Thames river
+      ctx.fillStyle = '#2a5a6a';
+      ctx.fillRect(0, GROUND_Y - 25, canvas.width, 25);
+      ctx.fillStyle = '#3a7a8a';
+      const waveOff = -(farP * 0.5) % 40;
+      for (let wx = waveOff - 40; wx < canvas.width + 40; wx += 40) {
+        ctx.fillRect(Math.floor(wx), GROUND_Y - 20, 20, 3);
+      }
+      // London Eye
+      const eyeOff = -(farP * 0.4 % 3000);
+      for (let ex = eyeOff; ex < canvas.width + 3000; ex += 3000) {
+        const x = Math.floor(ex + 600);
+        if (x < -80 || x > canvas.width + 80) continue;
+        ctx.strokeStyle = '#b0b0b0';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x, GROUND_Y - 120, 70, 0, Math.PI * 2);
+        ctx.stroke();
+        // Spokes
+        for (let a = 0; a < 12; a++) {
+          const angle = a * Math.PI / 6;
+          ctx.beginPath();
+          ctx.moveTo(x, GROUND_Y - 120);
+          ctx.lineTo(x + Math.cos(angle) * 70, GROUND_Y - 120 + Math.sin(angle) * 70);
+          ctx.stroke();
+        }
+        // Support
+        ctx.fillStyle = '#909090';
+        ctx.fillRect(x - 3, GROUND_Y - 50, 6, 50);
+      }
+      // Embankment railing
+      ctx.fillStyle = '#546e7a';
+      const railOff = -(parallax % 50);
+      for (let rx = railOff - 50; rx < canvas.width + 50; rx += 50) {
+        ctx.fillRect(Math.floor(rx), GROUND_Y - 25, 3, 25);
+      }
+      break;
+    }
+    case 4: { // Westminster / Big Ben
+      // Houses of Parliament
+      const parlOff = -(farP % 2500);
+      for (let px = parlOff; px < canvas.width + 2500; px += 2500) {
+        const x = Math.floor(px + 400);
+        if (x < -150 || x > canvas.width + 150) continue;
+        // Main building
+        ctx.fillStyle = '#a09070';
+        ctx.fillRect(x - 100, GROUND_Y - 100, 200, 100);
+        // Gothic windows
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 90; wy < GROUND_Y - 10; wy += 20) {
+          for (let wx = x - 90; wx < x + 90; wx += 18) {
+            ctx.fillRect(wx, wy, 8, 12);
+            ctx.beginPath();
+            ctx.arc(wx + 4, wy, 4, Math.PI, 0);
+            ctx.fill();
+          }
+        }
+        // Big Ben tower
+        ctx.fillStyle = '#b0a080';
+        ctx.fillRect(x + 80, GROUND_Y - 200, 30, 200);
+        ctx.fillStyle = '#c0b090';
+        ctx.beginPath();
+        ctx.moveTo(x + 78, GROUND_Y - 200);
+        ctx.lineTo(x + 95, GROUND_Y - 230);
+        ctx.lineTo(x + 112, GROUND_Y - 200);
+        ctx.fill();
+        // Clock face
+        ctx.fillStyle = '#f0e8d0';
+        ctx.beginPath();
+        ctx.arc(x + 95, GROUND_Y - 170, 10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#2d3436';
+        ctx.fillRect(x + 94, GROUND_Y - 178, 2, 9);
+        ctx.fillRect(x + 94, GROUND_Y - 172, 7, 2);
+      }
+      // Thames
+      ctx.fillStyle = '#2a5a6a';
+      ctx.fillRect(0, GROUND_Y - 15, canvas.width, 15);
+      break;
+    }
+    case 5: { // Buckingham Palace / The Mall
+      // Trees lining The Mall
+      const treeSp = 80;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx);
+        if (x < -25 || x > canvas.width + 25) continue;
+        ctx.fillStyle = '#3a2a18';
+        ctx.fillRect(x + 8, GROUND_Y - 55, 4, 55);
+        ctx.fillStyle = '#2a7a2e';
+        ctx.beginPath();
+        ctx.arc(x + 10, GROUND_Y - 65, 16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // Buckingham Palace
+      const palOff = -(farP % 3000);
+      for (let px = palOff; px < canvas.width + 3000; px += 3000) {
+        const x = Math.floor(px + 600);
+        if (x < -120 || x > canvas.width + 120) continue;
+        ctx.fillStyle = '#d8d0c0';
+        ctx.fillRect(x - 100, GROUND_Y - 110, 200, 110);
+        ctx.fillStyle = '#c8c0b0';
+        ctx.fillRect(x - 105, GROUND_Y - 115, 210, 8);
+        // Windows
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 100; wy < GROUND_Y - 10; wy += 20) {
+          for (let wx = x - 90; wx < x + 90; wx += 20) {
+            ctx.fillRect(wx, wy, 10, 12);
+          }
+        }
+        // Central balcony
+        ctx.fillStyle = '#e0d8c8';
+        ctx.fillRect(x - 20, GROUND_Y - 70, 40, 6);
+        // Flag
+        ctx.fillStyle = '#c0392b';
+        ctx.fillRect(x - 1, GROUND_Y - 135, 12, 8);
+        ctx.fillRect(x - 1, GROUND_Y - 140, 2, 30);
+      }
+      // Finish
+      ctx.fillStyle = 'rgba(192,57,43,0.9)';
+      ctx.fillRect(canvas.width / 2 - 100, GROUND_Y - 50, 200, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('LONDON MARATHON', canvas.width / 2, GROUND_Y - 37);
+      break;
+    }
+  }
+}
+
+// ======== BOSTON SCENES ========
+function drawBostonScene(scene, parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  switch (scene) {
+    case 0: { // Hopkinton - small town start
+      // New England houses
+      const houseSp = 140;
+      const houseOff = -(midP % houseSp);
+      const colors = ['#e8e0d0','#d8d0c0','#f0e8d8','#e0d8c8'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const ci = ((x * 7) & 0xFF) % colors.length;
+        ctx.fillStyle = colors[ci];
+        ctx.fillRect(x, GROUND_Y - 70, 60, 70);
+        // Pitched roof
+        ctx.fillStyle = '#5a4a3a';
+        ctx.beginPath();
+        ctx.moveTo(x - 5, GROUND_Y - 70);
+        ctx.lineTo(x + 30, GROUND_Y - 100);
+        ctx.lineTo(x + 65, GROUND_Y - 70);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 55; wy < GROUND_Y - 10; wy += 18) {
+          ctx.fillRect(x + 10, wy, 8, 10);
+          ctx.fillRect(x + 38, wy, 8, 10);
+        }
+      }
+      // Trees
+      const treeSp = 200;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx + 100);
+        if (x < -20 || x > canvas.width + 20) continue;
+        ctx.fillStyle = '#4a3a20';
+        ctx.fillRect(x, GROUND_Y - 80, 5, 80);
+        ctx.fillStyle = '#2a7a2e';
+        ctx.beginPath();
+        ctx.arc(x + 2, GROUND_Y - 90, 20, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 1: { // Ashland & Framingham - suburbs
+      const houseSp = 120;
+      const houseOff = -(midP % houseSp);
+      const colors = ['#c8d8e8','#d8c8b8','#e0d0c0','#c0d0c0'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const ci = ((x * 7) & 0xFF) % colors.length;
+        ctx.fillStyle = colors[ci];
+        ctx.fillRect(x, GROUND_Y - 60, 70, 60);
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.moveTo(x - 3, GROUND_Y - 60);
+        ctx.lineTo(x + 35, GROUND_Y - 85);
+        ctx.lineTo(x + 73, GROUND_Y - 60);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        ctx.fillRect(x + 12, GROUND_Y - 45, 8, 10);
+        ctx.fillRect(x + 45, GROUND_Y - 45, 8, 10);
+      }
+      break;
+    }
+    case 2: { // Wellesley College
+      // College buildings (brick)
+      const bldgSp = 200;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -80 || x > canvas.width + 80) continue;
+        ctx.fillStyle = '#8b4513';
+        ctx.fillRect(x, GROUND_Y - 100, 100, 100);
+        ctx.fillStyle = '#a0522d';
+        ctx.fillRect(x - 2, GROUND_Y - 104, 104, 6);
+        // Tower
+        ctx.fillStyle = '#7a3a10';
+        ctx.fillRect(x + 35, GROUND_Y - 140, 30, 45);
+        ctx.beginPath();
+        ctx.moveTo(x + 33, GROUND_Y - 140);
+        ctx.lineTo(x + 50, GROUND_Y - 165);
+        ctx.lineTo(x + 67, GROUND_Y - 140);
+        ctx.fill();
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 90; wy < GROUND_Y - 10; wy += 16) {
+          for (let wx = x + 6; wx < x + 94; wx += 18) {
+            ctx.fillRect(wx, wy, 8, 10);
+          }
+        }
+      }
+      // Trees
+      const treeSp = 100;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx + 60);
+        if (x < -20 || x > canvas.width + 20) continue;
+        ctx.fillStyle = '#3a2a18';
+        ctx.fillRect(x, GROUND_Y - 55, 4, 55);
+        ctx.fillStyle = '#2a7a2e';
+        ctx.beginPath();
+        ctx.arc(x + 2, GROUND_Y - 65, 16, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      break;
+    }
+    case 3: { // Newton / Heartbreak Hill
+      // Hilly terrain hint — undulating treeline
+      const treeSp = 45;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx);
+        if (x < -25 || x > canvas.width + 25) continue;
+        const hillY = Math.sin((x + midP) * 0.008) * 20;
+        ctx.fillStyle = '#3a2a18';
+        ctx.fillRect(x + 6, GROUND_Y - 70 + hillY, 4, 70 - hillY);
+        ctx.fillStyle = '#1a6a20';
+        ctx.beginPath();
+        ctx.arc(x + 8, GROUND_Y - 80 + hillY, 18, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      // "HEARTBREAK HILL" sign
+      const signOff = -(midP % 3000);
+      for (let sx = signOff; sx < canvas.width + 3000; sx += 3000) {
+        const x = Math.floor(sx + 500);
+        if (x < -60 || x > canvas.width + 60) continue;
+        ctx.fillStyle = '#f0c040';
+        ctx.fillRect(x, GROUND_Y - 60, 90, 16);
+        ctx.fillStyle = '#1a1a2e';
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('HEARTBREAK HILL', x + 45, GROUND_Y - 49);
+      }
+      break;
+    }
+    case 4: { // Brookline - Citgo Sign
+      const houseSp = 100;
+      const houseOff = -(midP % houseSp);
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -60 || x > canvas.width + 60) continue;
+        const h = 80 + ((x * 7) & 0x1F);
+        ctx.fillStyle = '#8b5e3c';
+        ctx.fillRect(x, GROUND_Y - h, 70, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 10; wy < GROUND_Y - 10; wy += 16) {
+          for (let wx = x + 6; wx < x + 64; wx += 14) {
+            ctx.fillRect(wx, wy, 6, 8);
+          }
+        }
+      }
+      // CITGO sign
+      const citgoOff = -(farP % 3000);
+      for (let cx = citgoOff; cx < canvas.width + 3000; cx += 3000) {
+        const x = Math.floor(cx + 800);
+        if (x < -30 || x > canvas.width + 30) continue;
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x - 2, GROUND_Y - 200, 4, 120);
+        // CITGO triangle
+        ctx.fillStyle = '#e63946';
+        ctx.beginPath();
+        ctx.moveTo(x - 20, GROUND_Y - 170);
+        ctx.lineTo(x, GROUND_Y - 200);
+        ctx.lineTo(x + 20, GROUND_Y - 170);
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = '7px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('CITGO', x, GROUND_Y - 177);
+      }
+      break;
+    }
+    case 5: { // Boylston Street Finish
+      // Tall city buildings
+      const bldgSp = 80;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -50 || x > canvas.width + 50) continue;
+        const h = 120 + ((x * 13) & 0x7F);
+        ctx.fillStyle = ['#546e7a','#607d8b','#455a64'][(x & 0xFF) % 3];
+        ctx.fillRect(x, GROUND_Y - h, 55, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 8; wy < GROUND_Y - 8; wy += 12) {
+          for (let wx = x + 4; wx < x + 51; wx += 10) {
+            if (((wx * 11 + wy * 7) & 0xF) < 4)
+              ctx.fillRect(wx, wy, 5, 6);
+          }
+        }
+      }
+      // Finish banner
+      ctx.fillStyle = 'rgba(240,192,64,0.9)';
+      ctx.fillRect(canvas.width / 2 - 100, GROUND_Y - 50, 200, 18);
+      ctx.fillStyle = '#1a1a2e';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('BOSTON MARATHON', canvas.width / 2, GROUND_Y - 37);
+      break;
+    }
+  }
+}
+
+// ======== SINGAPORE SCENES ========
+function drawSingaporeScene(scene, parallax) {
+  const farP = parallax * 0.3;
+  const midP = parallax * 0.5;
+
+  switch (scene) {
+    case 0: { // Padang / Colonial District
+      // Colonial buildings
+      const bldgSp = 180;
+      const bldgOff = -(midP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -80 || x > canvas.width + 80) continue;
+        ctx.fillStyle = '#f0e8d0';
+        ctx.fillRect(x, GROUND_Y - 90, 100, 90);
+        // Columns
+        ctx.fillStyle = '#e8e0c8';
+        for (let c = 0; c < 5; c++) {
+          ctx.fillRect(x + 6 + c * 22, GROUND_Y - 95, 6, 80);
+        }
+        ctx.fillStyle = '#e0d8c0';
+        ctx.fillRect(x - 3, GROUND_Y - 98, 106, 6);
+        // Red tile roof
+        ctx.fillStyle = '#b04030';
+        ctx.fillRect(x - 5, GROUND_Y - 104, 110, 8);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - 75; wy < GROUND_Y - 15; wy += 18) {
+          for (let wx = x + 10; wx < x + 90; wx += 22) {
+            ctx.fillRect(wx, wy, 8, 10);
+          }
+        }
+      }
+      break;
+    }
+    case 1: { // Marina Bay / Merlion
+      // Marina Bay Sands in background
+      const mbsOff = -(farP % 3000);
+      for (let mx = mbsOff; mx < canvas.width + 3000; mx += 3000) {
+        const x = Math.floor(mx + 500);
+        if (x < -100 || x > canvas.width + 100) continue;
+        // Three towers
+        ctx.fillStyle = '#546e7a';
+        ctx.fillRect(x - 60, GROUND_Y - 220, 25, 220);
+        ctx.fillRect(x - 12, GROUND_Y - 230, 25, 230);
+        ctx.fillRect(x + 35, GROUND_Y - 220, 25, 220);
+        // SkyPark (boat on top)
+        ctx.fillStyle = '#78909c';
+        ctx.fillRect(x - 70, GROUND_Y - 240, 170, 12);
+        // Windows
+        ctx.fillStyle = '#90caf9';
+        for (let t = 0; t < 3; t++) {
+          const tx = x - 60 + t * 47 + (t === 1 ? -1 : 0);
+          for (let wy = GROUND_Y - 210; wy < GROUND_Y - 10; wy += 10) {
+            ctx.fillRect(tx + 3, wy, 19, 4);
+          }
+        }
+      }
+      // Merlion
+      const merlOff = -(midP % 3000);
+      for (let mx = merlOff; mx < canvas.width + 3000; mx += 3000) {
+        const x = Math.floor(mx + 200);
+        if (x < -20 || x > canvas.width + 20) continue;
+        ctx.fillStyle = '#d0d0d0';
+        ctx.fillRect(x - 8, GROUND_Y - 50, 16, 50);
+        ctx.fillRect(x - 12, GROUND_Y - 60, 24, 15);
+        // Water spray
+        ctx.fillStyle = '#74b9ff';
+        ctx.fillRect(x + 10, GROUND_Y - 55, 15, 3);
+        ctx.fillRect(x + 20, GROUND_Y - 50, 10, 3);
+      }
+      // Water
+      ctx.fillStyle = '#0d47a1';
+      ctx.fillRect(0, GROUND_Y - 15, canvas.width, 15);
+      break;
+    }
+    case 2: { // Gardens by the Bay / Supertrees
+      // Supertree grove
+      const treeSp = 120;
+      const treeOff = -(midP % treeSp);
+      for (let tx = treeOff - treeSp; tx < canvas.width + treeSp; tx += treeSp) {
+        const x = Math.floor(tx);
+        if (x < -30 || x > canvas.width + 30) continue;
+        const h = 120 + ((x * 7) & 0x3F);
+        // Trunk (tapers)
+        ctx.fillStyle = '#5a7a5a';
+        ctx.fillRect(x + 6, GROUND_Y - h, 6, h);
+        // Canopy (mushroom shape)
+        ctx.fillStyle = '#2e7d32';
+        ctx.beginPath();
+        ctx.arc(x + 9, GROUND_Y - h, 25, Math.PI, 0);
+        ctx.fill();
+        ctx.fillStyle = '#388e3c';
+        ctx.beginPath();
+        ctx.arc(x + 9, GROUND_Y - h + 5, 20, Math.PI, 0);
+        ctx.fill();
+        // Hanging vines
+        ctx.fillStyle = '#43a047';
+        for (let v = -15; v < 15; v += 6) {
+          ctx.fillRect(x + 9 + v, GROUND_Y - h + 5, 2, 15 + ((v * 3) & 0x7));
+        }
+      }
+      // Skyway between trees
+      ctx.strokeStyle = '#78909c';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(0, GROUND_Y - 130);
+      ctx.quadraticCurveTo(canvas.width / 2, GROUND_Y - 110, canvas.width, GROUND_Y - 130);
+      ctx.stroke();
+      break;
+    }
+    case 3: { // East Coast Park / Beach
+      // Palm trees
+      const palmSp = 150;
+      const palmOff = -(midP % palmSp);
+      for (let px = palmOff - palmSp; px < canvas.width + palmSp; px += palmSp) {
+        const x = Math.floor(px);
+        if (x < -30 || x > canvas.width + 30) continue;
+        // Curved trunk
+        ctx.fillStyle = '#8b7355';
+        ctx.fillRect(x + 4, GROUND_Y - 80, 6, 80);
+        // Fronds
+        ctx.fillStyle = '#2e7d32';
+        for (let f = 0; f < 5; f++) {
+          const angle = -0.6 + f * 0.3;
+          ctx.save();
+          ctx.translate(x + 7, GROUND_Y - 80);
+          ctx.rotate(angle);
+          ctx.fillRect(-2, -30, 4, 30);
+          ctx.fillRect(-8, -30, 16, 5);
+          ctx.restore();
+        }
+      }
+      // Ocean in background
+      ctx.fillStyle = '#0288d1';
+      ctx.fillRect(0, GROUND_Y - 40, canvas.width, 20);
+      ctx.fillStyle = '#039be5';
+      const waveOff = -(farP * 0.5) % 30;
+      for (let wx = waveOff - 30; wx < canvas.width + 30; wx += 30) {
+        ctx.fillRect(Math.floor(wx), GROUND_Y - 36, 15, 3);
+      }
+      break;
+    }
+    case 4: { // Chinatown / Shophouses
+      const houseSp = 70;
+      const houseOff = -(midP % houseSp);
+      const houseColors = ['#e63946','#ffd600','#2196f3','#4caf50','#ff9800','#9c27b0'];
+      for (let hx = houseOff - houseSp; hx < canvas.width + houseSp; hx += houseSp) {
+        const x = Math.floor(hx);
+        if (x < -40 || x > canvas.width + 40) continue;
+        const ci = ((x * 7) & 0xFF) % houseColors.length;
+        ctx.fillStyle = houseColors[ci];
+        ctx.fillRect(x, GROUND_Y - 80, 55, 80);
+        // Shuttered windows
+        ctx.fillStyle = '#fff';
+        for (let wy = GROUND_Y - 65; wy < GROUND_Y - 15; wy += 20) {
+          ctx.fillRect(x + 8, wy, 14, 12);
+          ctx.fillRect(x + 32, wy, 14, 12);
+        }
+        // Five-foot way (covered walkway)
+        ctx.fillStyle = houseColors[ci] + 'cc';
+        ctx.fillRect(x - 3, GROUND_Y - 25, 61, 4);
+        // Ornamental top
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(x - 2, GROUND_Y - 82, 59, 4);
+      }
+      // Red lanterns
+      const lantSp = 100;
+      const lantOff = -(midP % lantSp);
+      for (let lx = lantOff - lantSp; lx < canvas.width + lantSp; lx += lantSp) {
+        const x = Math.floor(lx + 30);
+        if (x < -10 || x > canvas.width + 10) continue;
+        ctx.fillStyle = '#e63946';
+        ctx.fillRect(x, GROUND_Y - 100, 10, 14);
+        ctx.fillStyle = '#ffd600';
+        ctx.fillRect(x + 2, GROUND_Y - 102, 6, 2);
+        ctx.fillRect(x + 2, GROUND_Y - 88, 6, 2);
+      }
+      break;
+    }
+    case 5: { // Marina Bay Sands Finish (night feel)
+      // Skyline silhouettes
+      const bldgSp = 70;
+      const bldgOff = -(farP % bldgSp);
+      for (let bx = bldgOff - bldgSp; bx < canvas.width + bldgSp; bx += bldgSp) {
+        const x = Math.floor(bx);
+        if (x < -40 || x > canvas.width + 40) continue;
+        const h = 100 + ((x * 13) & 0x7F);
+        ctx.fillStyle = '#2a2a3a';
+        ctx.fillRect(x, GROUND_Y - h, 50, h);
+        ctx.fillStyle = '#ffeaa7';
+        for (let wy = GROUND_Y - h + 8; wy < GROUND_Y - 8; wy += 10) {
+          for (let wx = x + 4; wx < x + 46; wx += 8) {
+            if (((wx * 11 + wy * 7) & 0xF) < 5)
+              ctx.fillRect(wx, wy, 4, 5);
+          }
+        }
+      }
+      // Marina Bay water reflections
+      ctx.fillStyle = '#0d47a1';
+      ctx.fillRect(0, GROUND_Y - 20, canvas.width, 20);
+      ctx.fillStyle = '#ffeaa7';
+      ctx.globalAlpha = 0.15;
+      for (let rx = -(farP % 30); rx < canvas.width + 30; rx += 30) {
+        ctx.fillRect(Math.floor(rx), GROUND_Y - 15, 10, 2);
+        ctx.fillRect(Math.floor(rx) + 5, GROUND_Y - 8, 8, 2);
+      }
+      ctx.globalAlpha = 1;
+      // Finish
+      ctx.fillStyle = 'rgba(230,57,70,0.9)';
+      ctx.fillRect(canvas.width / 2 - 100, GROUND_Y - 50, 200, 18);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('SINGAPORE MARATHON', canvas.width / 2, GROUND_Y - 37);
+      break;
+    }
+  }
+}
+
 // ---- Draw Kilometer Markers ----
 function drawKmMarkers() {
   for (let km = 1; km <= RACE_DISTANCE_KM; km++) {
@@ -1809,55 +3163,78 @@ function drawHUD() {
 
 // ---- Draw Title Screen ----
 function drawTitle() {
+  const city = getCity();
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Draw a small runner silhouette
-  ctx.fillStyle = '#e63946';
-  ctx.fillRect(canvas.width / 2 - 5, 55, 10, 10);  // head
-  ctx.fillRect(canvas.width / 2 - 7, 65, 14, 14);  // body
-  ctx.fillRect(canvas.width / 2 - 10, 72, 5, 10);   // arm
-  ctx.fillRect(canvas.width / 2 + 5, 72, 5, 10);    // arm
-  ctx.fillRect(canvas.width / 2 - 7, 79, 5, 12);    // leg
-  ctx.fillRect(canvas.width / 2 + 2, 79, 5, 12);    // leg
+  ctx.fillStyle = city.accentColor;
+  ctx.fillRect(canvas.width / 2 - 5, 40, 10, 10);
+  ctx.fillRect(canvas.width / 2 - 7, 50, 14, 14);
+  ctx.fillRect(canvas.width / 2 - 10, 57, 5, 10);
+  ctx.fillRect(canvas.width / 2 + 5, 57, 5, 10);
+  ctx.fillRect(canvas.width / 2 - 7, 64, 5, 12);
+  ctx.fillRect(canvas.width / 2 + 2, 64, 5, 12);
 
-  ctx.fillStyle = '#e63946';
+  ctx.fillStyle = city.accentColor;
   ctx.font = '28px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('ISKANDER MARATHON', canvas.width / 2, 120);
+  ctx.fillText('ISKANDER MARATHON', canvas.width / 2, 100);
 
+  // ---- City selector ----
+  const selY = 125;
+  // Left arrow
+  ctx.fillStyle = '#718096';
+  ctx.font = '20px monospace';
+  ctx.fillText('<', canvas.width / 2 - 160, selY + 5);
+  // Right arrow
+  ctx.fillText('>', canvas.width / 2 + 160, selY + 5);
+  // City name
   ctx.fillStyle = '#f1faee';
-  ctx.font = '14px monospace';
-  ctx.fillText('Moscow Marathon Simulator', canvas.width / 2, 155);
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText(city.name, canvas.width / 2, selY);
+  // Subtitle
+  ctx.fillStyle = '#a0aec0';
+  ctx.font = '11px monospace';
+  ctx.fillText(city.subtitle, canvas.width / 2, selY + 18);
+  // Dots indicator
+  for (let i = 0; i < CITIES.length; i++) {
+    ctx.fillStyle = i === selectedCityIndex ? '#f1faee' : '#4a5568';
+    ctx.fillRect(canvas.width / 2 - (CITIES.length * 6) + i * 12, selY + 26, 6, 6);
+  }
 
   ctx.font = '12px monospace';
+  ctx.fillStyle = '#718096';
+  ctx.fillText(isMobile ? 'Swipe to select city' : 'Arrow keys to select city', canvas.width / 2, selY + 48);
+
   ctx.fillStyle = '#a0aec0';
-  ctx.fillText('42 km of pure determination', canvas.width / 2, 185);
+  ctx.font = '11px monospace';
+  ctx.fillText('42 km of pure determination', canvas.width / 2, 195);
 
   // Race info box
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
-  ctx.fillRect(canvas.width / 2 - 180, 200, 360, 70);
+  ctx.fillRect(canvas.width / 2 - 180, 205, 360, 55);
   ctx.fillStyle = '#718096';
   ctx.font = '11px monospace';
-  ctx.fillText('Time limit: 3 hours 20 minutes', canvas.width / 2, 220);
+  ctx.fillText('Time limit: 3 hours 20 minutes', canvas.width / 2, 222);
   ctx.fillText(isMobile ? 'Water stations every 5 km - tap DRINK' : 'Water stations every 5 km - press D to drink', canvas.width / 2, 238);
-  ctx.fillText('No saves. One shot. Pure marathon.', canvas.width / 2, 256);
+  ctx.fillText('No saves. One shot. Pure marathon.', canvas.width / 2, 254);
 
   // Score display
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '13px monospace';
-  ctx.fillText('Score: ' + score, canvas.width / 2, 285);
+  ctx.fillText('Score: ' + score, canvas.width / 2, 280);
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText('Finish the marathon in time to earn +1 point', canvas.width / 2, 300);
+  ctx.fillText('Finish the marathon in time to earn +1 point', canvas.width / 2, 295);
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '16px monospace';
-  ctx.fillText(isMobile ? 'Tap RUN to start' : 'Press SPACE to start', canvas.width / 2, 335);
+  ctx.fillText(isMobile ? 'Tap RUN to start' : 'Press SPACE to start', canvas.width / 2, 330);
 
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 360);
+  ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 355);
 
   // Hidden command input
   if (cmdActive) {
@@ -1886,7 +3263,7 @@ function drawFinish() {
     ctx.fillText('MARATHON COMPLETE!', canvas.width / 2, 80);
     ctx.fillStyle = '#ffeaa7';
     ctx.font = '14px monospace';
-    ctx.fillText('Iskander finished the Moscow Marathon!', canvas.width / 2, 108);
+    ctx.fillText('Iskander finished the ' + getCity().subtitle + '!', canvas.width / 2, 108);
   } else if (game.raceResult === 'dnf') {
     ctx.fillStyle = '#e63946';
     ctx.font = '28px monospace';
