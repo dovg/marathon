@@ -1,0 +1,591 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Iskander Marathon Runner</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  overflow: hidden;
+  font-family: monospace;
+}
+canvas {
+  border: 2px solid #333;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+</style>
+</head>
+<body>
+<canvas id="game" width="800" height="400"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+// ---- Constants ----
+const RACE_DISTANCE_KM = 42;
+const METERS_PER_KM = 1000;
+const TOTAL_METERS = RACE_DISTANCE_KM * METERS_PER_KM;
+const GROUND_Y = 320;
+const RUNNER_X = 150;
+const PITSTOP_EVERY_KM = 5;
+
+// Pixels per meter for world scrolling
+const PIXELS_PER_METER = 8;
+
+// ---- Game State ----
+const game = {
+  state: 'title', // title, running, finished
+  distance: 0,       // meters traveled
+  speed: 0,          // current m/s
+  maxSpeed: 6,
+  stamina: 100,
+  maxStamina: 100,
+  power: 100,
+  maxPower: 100,
+  time: 0,           // seconds elapsed
+  pressTimestamps: [],
+  lastPressTime: 0,
+  stepQueued: false,
+  worldX: 0,         // camera scroll offset in pixels
+  finishTime: null,
+  raceResult: null,   // 'win' or 'lose'
+  // Runner animation
+  runner: {
+    y: GROUND_Y - 32,
+    frame: 0,
+    frameTimer: 0,
+    bobY: 0,
+    stepping: false,
+    stepAnim: 0
+  }
+};
+
+// ---- Input ----
+const keys = {};
+let spaceJustPressed = false;
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') {
+    e.preventDefault();
+    if (!keys['Space']) {
+      keys['Space'] = true;
+      spaceJustPressed = true;
+    }
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'Space') {
+    keys['Space'] = false;
+  }
+});
+
+// ---- Press frequency tracking ----
+function registerPress() {
+  const now = performance.now();
+  game.pressTimestamps.push(now);
+  // Keep only last 2 seconds of presses
+  const cutoff = now - 2000;
+  game.pressTimestamps = game.pressTimestamps.filter(t => t > cutoff);
+  game.lastPressTime = now;
+}
+
+function getPressFrequency() {
+  const now = performance.now();
+  const cutoff = now - 2000;
+  const recent = game.pressTimestamps.filter(t => t > cutoff);
+  if (recent.length < 2) return recent.length * 0.5;
+  const span = (now - recent[0]) / 1000;
+  if (span < 0.01) return 0;
+  return recent.length / span;
+}
+
+// ---- Power curve: decreases first half, increases second half ----
+function getPowerMultiplier() {
+  const progress = game.distance / TOTAL_METERS;
+  // U-shaped curve: high at start, low at middle, high at end
+  // power = 1 - 0.6 * sin(pi * progress)
+  return 1 - 0.6 * Math.sin(Math.PI * progress);
+}
+
+// ---- Update ----
+let lastTime = 0;
+
+function update(dt) {
+  if (game.state !== 'running') return;
+
+  game.time += dt;
+
+  // Handle space press
+  if (spaceJustPressed) {
+    spaceJustPressed = false;
+    registerPress();
+    game.runner.stepping = true;
+    game.runner.stepAnim = 0;
+  }
+
+  // Calculate target speed from press frequency
+  const freq = getPressFrequency();
+  // freq of ~5-8 presses/sec = fast running
+  const normalizedFreq = Math.min(freq / 7, 1);
+  const powerMult = getPowerMultiplier();
+  const staminaMult = game.stamina / game.maxStamina;
+  const targetSpeed = normalizedFreq * game.maxSpeed * powerMult * staminaMult;
+
+  // Smooth speed transition
+  game.speed += (targetSpeed - game.speed) * Math.min(dt * 3, 1);
+
+  // If no recent presses, decelerate
+  const timeSincePress = (performance.now() - game.lastPressTime) / 1000;
+  if (timeSincePress > 1.0) {
+    game.speed *= Math.pow(0.3, dt);
+  }
+
+  // Stamina: drains with high frequency, recovers at low frequency
+  const staminaDrain = normalizedFreq * 8 * dt;  // drain rate
+  const staminaRecovery = (1 - normalizedFreq) * 3 * dt; // recovery rate
+  game.stamina = Math.max(0, Math.min(game.maxStamina, game.stamina - staminaDrain + staminaRecovery));
+
+  // Power follows the curve (not directly controllable)
+  game.power = getPowerMultiplier() * game.maxPower;
+
+  // Move distance
+  game.distance += game.speed * dt;
+  game.worldX = game.distance * PIXELS_PER_METER;
+
+  // Runner animation
+  if (game.speed > 0.3) {
+    game.runner.frameTimer += dt * game.speed * 2;
+    if (game.runner.frameTimer > 1) {
+      game.runner.frameTimer = 0;
+      game.runner.frame = (game.runner.frame + 1) % 4;
+    }
+    game.runner.bobY = Math.sin(game.runner.frameTimer * Math.PI) * 2;
+  } else {
+    game.runner.frame = 0;
+    game.runner.bobY = 0;
+  }
+
+  if (game.runner.stepping) {
+    game.runner.stepAnim += dt * 8;
+    if (game.runner.stepAnim > 1) {
+      game.runner.stepping = false;
+    }
+  }
+
+  // Check finish
+  if (game.distance >= TOTAL_METERS) {
+    game.distance = TOTAL_METERS;
+    game.state = 'finished';
+    game.finishTime = game.time;
+    // Target: ~2.5 hours = 9000 seconds for a good time
+    game.raceResult = game.time < 12000 ? 'win' : 'lose';
+  }
+}
+
+// ---- Drawing helpers ----
+function drawPixelRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.floor(x), Math.floor(y), w, h);
+}
+
+// ---- Draw Runner (pixel art stick figure) ----
+function drawRunner() {
+  const x = RUNNER_X;
+  const baseY = GROUND_Y - 32 + game.runner.bobY;
+  const frame = game.runner.frame;
+
+  // Colors
+  const skin = '#f5c6a0';
+  const shirt = '#e63946';
+  const shorts = '#1d3557';
+  const shoes = '#f1faee';
+  const hair = '#2b2d42';
+
+  // Head
+  drawPixelRect(x + 4, baseY, 8, 8, skin);
+  // Hair
+  drawPixelRect(x + 4, baseY, 8, 3, hair);
+  // Eyes
+  drawPixelRect(x + 9, baseY + 3, 2, 2, '#2b2d42');
+
+  // Body / shirt
+  drawPixelRect(x + 3, baseY + 8, 10, 10, shirt);
+  // Number on shirt
+  drawPixelRect(x + 6, baseY + 10, 4, 4, '#f1faee');
+
+  // Arms (animated)
+  if (game.speed > 0.3) {
+    // Running arm animation
+    const armSwing = frame < 2 ? 1 : -1;
+    // Left arm
+    drawPixelRect(x + 1, baseY + 8 + armSwing * 2, 3, 6, skin);
+    // Right arm
+    drawPixelRect(x + 12, baseY + 8 - armSwing * 2, 3, 6, skin);
+  } else {
+    // Standing arms
+    drawPixelRect(x + 1, baseY + 8, 3, 8, skin);
+    drawPixelRect(x + 12, baseY + 8, 3, 8, skin);
+  }
+
+  // Shorts
+  drawPixelRect(x + 3, baseY + 18, 5, 4, shorts);
+  drawPixelRect(x + 8, baseY + 18, 5, 4, shorts);
+
+  // Legs (animated)
+  if (game.speed > 0.3) {
+    const legOffset = frame % 2 === 0 ? 3 : -3;
+    // Left leg
+    drawPixelRect(x + 4 + legOffset, baseY + 22, 4, 8, skin);
+    drawPixelRect(x + 4 + legOffset, baseY + 28, 5, 3, shoes);
+    // Right leg
+    drawPixelRect(x + 8 - legOffset, baseY + 22, 4, 8, skin);
+    drawPixelRect(x + 8 - legOffset, baseY + 28, 5, 3, shoes);
+  } else {
+    // Standing legs
+    drawPixelRect(x + 4, baseY + 22, 4, 8, skin);
+    drawPixelRect(x + 4, baseY + 28, 5, 3, shoes);
+    drawPixelRect(x + 8, baseY + 22, 4, 8, skin);
+    drawPixelRect(x + 8, baseY + 28, 5, 3, shoes);
+  }
+}
+
+// ---- Draw Ground ----
+function drawGround() {
+  // Ground
+  ctx.fillStyle = '#4a5568';
+  ctx.fillRect(0, GROUND_Y, canvas.width, canvas.height - GROUND_Y);
+
+  // Road surface
+  ctx.fillStyle = '#718096';
+  ctx.fillRect(0, GROUND_Y, canvas.width, 40);
+
+  // Road markings (scrolling)
+  ctx.fillStyle = '#e2e8f0';
+  const markSpacing = 60;
+  const offset = -(game.worldX % markSpacing);
+  for (let i = offset; i < canvas.width + markSpacing; i += markSpacing) {
+    ctx.fillRect(Math.floor(i), GROUND_Y + 18, 20, 3);
+  }
+}
+
+// ---- Draw Sky ----
+function drawSky() {
+  // Sky gradient (simple bands)
+  const colors = ['#1a1a2e', '#16213e', '#0f3460', '#533483'];
+  const bandH = 80;
+  for (let i = 0; i < colors.length; i++) {
+    ctx.fillStyle = colors[i];
+    ctx.fillRect(0, i * bandH, canvas.width, bandH);
+  }
+}
+
+// ---- Draw Background Buildings (parallax) ----
+function drawBackground() {
+  const parallax = game.worldX * 0.15;
+
+  // Simple Moscow skyline silhouette
+  ctx.fillStyle = '#2d3436';
+
+  // Buildings at various positions (repeating pattern)
+  const buildingPattern = [
+    { x: 0, w: 60, h: 120 },
+    { x: 80, w: 40, h: 80 },
+    { x: 140, w: 50, h: 150 },  // tall tower
+    { x: 200, w: 70, h: 90 },
+    { x: 290, w: 30, h: 60 },
+    { x: 340, w: 80, h: 130 },
+    { x: 440, w: 45, h: 70 },
+    { x: 500, w: 55, h: 110 },
+    { x: 580, w: 40, h: 85 },
+    { x: 640, w: 70, h: 100 },
+    { x: 730, w: 50, h: 140 },
+    { x: 800, w: 60, h: 75 },
+    { x: 880, w: 45, h: 95 },
+  ];
+  const patternWidth = 950;
+
+  const startOffset = -((parallax) % patternWidth);
+  for (let shift = startOffset - patternWidth; shift < canvas.width + patternWidth; shift += patternWidth) {
+    for (const b of buildingPattern) {
+      const bx = shift + b.x;
+      if (bx + b.w < -100 || bx > canvas.width + 100) continue;
+      ctx.fillRect(Math.floor(bx), GROUND_Y - b.h, b.w, b.h);
+
+      // Windows (deterministic pattern based on position)
+      ctx.fillStyle = '#ffeaa7';
+      for (let wy = GROUND_Y - b.h + 10; wy < GROUND_Y - 10; wy += 15) {
+        for (let wx = bx + 8; wx < bx + b.w - 8; wx += 12) {
+          const hash = (Math.floor(wx) * 7 + wy * 13) & 0xF;
+          if (hash > 1) {
+            ctx.fillRect(Math.floor(wx), wy, 4, 6);
+          }
+        }
+      }
+      ctx.fillStyle = '#2d3436';
+    }
+  }
+
+  // Kremlin-like tower (appears periodically)
+  drawKremlinTower(parallax);
+}
+
+function drawKremlinTower(parallax) {
+  const spacing = 3000; // pixels between kremlin appearances
+  const offset = -(parallax % spacing);
+
+  for (let shift = offset - spacing; shift < canvas.width + spacing; shift += spacing) {
+    const tx = shift + 400;
+    if (tx < -200 || tx > canvas.width + 200) continue;
+
+    // Tower base
+    ctx.fillStyle = '#6c3a2a';
+    ctx.fillRect(Math.floor(tx), GROUND_Y - 180, 50, 180);
+
+    // Tower top (pointed)
+    ctx.fillStyle = '#8b4513';
+    ctx.beginPath();
+    ctx.moveTo(Math.floor(tx) - 5, GROUND_Y - 180);
+    ctx.lineTo(Math.floor(tx) + 25, GROUND_Y - 220);
+    ctx.lineTo(Math.floor(tx) + 55, GROUND_Y - 180);
+    ctx.fill();
+
+    // Star on top
+    ctx.fillStyle = '#e63946';
+    drawPixelRect(tx + 20, GROUND_Y - 228, 10, 10, '#e63946');
+
+    // Wall extending from tower
+    ctx.fillStyle = '#8b4513';
+    ctx.fillRect(Math.floor(tx) - 100, GROUND_Y - 80, 250, 80);
+
+    // Crenellations
+    ctx.fillStyle = '#6c3a2a';
+    for (let cx = tx - 100; cx < tx + 150; cx += 20) {
+      ctx.fillRect(Math.floor(cx), GROUND_Y - 90, 12, 10);
+    }
+  }
+}
+
+// ---- Draw Kilometer Markers ----
+function drawKmMarkers() {
+  for (let km = 1; km <= RACE_DISTANCE_KM; km++) {
+    const meterPos = km * METERS_PER_KM;
+    const screenX = (meterPos * PIXELS_PER_METER) - game.worldX + RUNNER_X;
+
+    if (screenX < -50 || screenX > canvas.width + 50) continue;
+
+    // Marker post
+    ctx.fillStyle = '#e2e8f0';
+    ctx.fillRect(Math.floor(screenX), GROUND_Y - 50, 4, 50);
+
+    // Sign
+    const isPitstop = km % PITSTOP_EVERY_KM === 0 && km < RACE_DISTANCE_KM;
+    ctx.fillStyle = isPitstop ? '#00b894' : '#dfe6e9';
+    ctx.fillRect(Math.floor(screenX) - 12, GROUND_Y - 65, 28, 18);
+
+    // Text
+    ctx.fillStyle = '#2d3436';
+    ctx.font = '10px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(km + 'km', Math.floor(screenX) + 2, GROUND_Y - 52);
+
+    // Pitstop water table
+    if (isPitstop) {
+      ctx.fillStyle = '#00b894';
+      ctx.fillRect(Math.floor(screenX) + 15, GROUND_Y - 20, 30, 4);
+      // Water cups
+      ctx.fillStyle = '#74b9ff';
+      for (let c = 0; c < 3; c++) {
+        ctx.fillRect(Math.floor(screenX) + 18 + c * 10, GROUND_Y - 28, 6, 8);
+      }
+    }
+
+    // Finish line
+    if (km === RACE_DISTANCE_KM) {
+      // Checkered pattern
+      for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 4; col++) {
+          ctx.fillStyle = (row + col) % 2 === 0 ? '#fff' : '#000';
+          ctx.fillRect(Math.floor(screenX) - 8 + col * 6, GROUND_Y - 60 + row * 6, 6, 6);
+        }
+      }
+    }
+  }
+}
+
+// ---- Draw HUD ----
+function drawHUD() {
+  const currentKm = game.distance / METERS_PER_KM;
+  const minutes = Math.floor(game.time / 60);
+  const seconds = Math.floor(game.time % 60);
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(10, 10, 200, 110);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'left';
+
+  ctx.fillText('Distance: ' + currentKm.toFixed(2) + ' / 42 km', 20, 30);
+  ctx.fillText('Speed: ' + (game.speed * 3.6).toFixed(1) + ' km/h', 20, 48);
+  ctx.fillText('Time: ' + hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(seconds % 60).padStart(2, '0') + 's', 20, 66);
+
+  // Stamina bar
+  ctx.fillText('Stamina:', 20, 84);
+  ctx.fillStyle = '#2d3436';
+  ctx.fillRect(90, 74, 100, 12);
+  ctx.fillStyle = game.stamina > 30 ? '#00b894' : '#e17055';
+  ctx.fillRect(90, 74, (game.stamina / game.maxStamina) * 100, 12);
+
+  // Power bar
+  ctx.fillStyle = '#f1faee';
+  ctx.fillText('Power:', 20, 102);
+  ctx.fillStyle = '#2d3436';
+  ctx.fillRect(90, 92, 100, 12);
+  ctx.fillStyle = '#6c5ce7';
+  ctx.fillRect(90, 92, (game.power / game.maxPower) * 100, 12);
+
+  // Press frequency hint
+  const freq = getPressFrequency();
+  ctx.fillStyle = '#f1faee';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('Press rate: ' + freq.toFixed(1) + '/s', canvas.width - 20, 30);
+}
+
+// ---- Draw Title Screen ----
+function drawTitle() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = '#e63946';
+  ctx.font = '28px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('ISKANDER MARATHON', canvas.width / 2, 120);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.font = '14px monospace';
+  ctx.fillText('Moscow Marathon Simulator', canvas.width / 2, 155);
+
+  ctx.font = '12px monospace';
+  ctx.fillStyle = '#a0aec0';
+  ctx.fillText('42 km of pure determination', canvas.width / 2, 190);
+
+  ctx.fillStyle = '#ffeaa7';
+  ctx.font = '16px monospace';
+  ctx.fillText('Press SPACE to start', canvas.width / 2, 260);
+
+  ctx.fillStyle = '#718096';
+  ctx.font = '10px monospace';
+  ctx.fillText('Tap SPACE rapidly to run. Manage your stamina!', canvas.width / 2, 310);
+  ctx.fillText('Water stations every 5 km. No saves!', canvas.width / 2, 328);
+}
+
+// ---- Draw Finish Screen ----
+function drawFinish() {
+  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const hours = Math.floor(game.finishTime / 3600);
+  const mins = Math.floor((game.finishTime % 3600) / 60);
+  const secs = Math.floor(game.finishTime % 60);
+
+  if (game.raceResult === 'win') {
+    ctx.fillStyle = '#00b894';
+    ctx.font = '28px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RACE COMPLETE!', canvas.width / 2, 120);
+  } else {
+    ctx.fillStyle = '#e17055';
+    ctx.font = '28px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('RACE FINISHED', canvas.width / 2, 120);
+  }
+
+  ctx.fillStyle = '#f1faee';
+  ctx.font = '16px monospace';
+  ctx.fillText('Time: ' + hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's', canvas.width / 2, 170);
+  ctx.fillText('Distance: 42.00 km', canvas.width / 2, 200);
+
+  const avgSpeed = (TOTAL_METERS / game.finishTime) * 3.6;
+  ctx.fillText('Avg Speed: ' + avgSpeed.toFixed(1) + ' km/h', canvas.width / 2, 230);
+
+  ctx.fillStyle = '#ffeaa7';
+  ctx.font = '14px monospace';
+  ctx.fillText('Press SPACE to restart', canvas.width / 2, 300);
+}
+
+// ---- Main Loop ----
+function gameLoop(timestamp) {
+  const dt = Math.min((timestamp - lastTime) / 1000, 0.05); // cap dt
+  lastTime = timestamp;
+
+  // Handle state transitions from input
+  if (spaceJustPressed && game.state === 'title') {
+    spaceJustPressed = false;
+    game.state = 'running';
+  }
+  if (spaceJustPressed && game.state === 'finished') {
+    spaceJustPressed = false;
+    resetGame();
+  }
+
+  update(dt);
+
+  // Draw
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  if (game.state === 'title') {
+    drawTitle();
+  } else if (game.state === 'running') {
+    drawSky();
+    drawBackground();
+    drawGround();
+    drawKmMarkers();
+    drawRunner();
+    drawHUD();
+  } else if (game.state === 'finished') {
+    drawSky();
+    drawBackground();
+    drawGround();
+    drawKmMarkers();
+    drawRunner();
+    drawHUD();
+    drawFinish();
+  }
+
+  requestAnimationFrame(gameLoop);
+}
+
+function resetGame() {
+  game.state = 'title';
+  game.distance = 0;
+  game.speed = 0;
+  game.stamina = 100;
+  game.power = 100;
+  game.time = 0;
+  game.pressTimestamps = [];
+  game.lastPressTime = 0;
+  game.worldX = 0;
+  game.finishTime = null;
+  game.raceResult = null;
+  game.runner.frame = 0;
+  game.runner.frameTimer = 0;
+  game.runner.bobY = 0;
+  game.runner.stepping = false;
+}
+
+// Start
+requestAnimationFrame(gameLoop);
+</script>
+</body>
+</html>
