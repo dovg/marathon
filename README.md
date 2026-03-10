@@ -1,8 +1,19 @@
 # Iskander Marathon Runner
 
-A browser-based 42km Moscow Marathon simulator. Tap SPACE to make Iskander run through pixel-art Moscow landmarks, managing stamina and rhythm over the full marathon distance.
+A browser-based 42km marathon simulator. Choose your city, tap SPACE to make Iskander run through pixel-art landmarks, managing stamina and rhythm over the full marathon distance.
 
-![Title Screen](screenshots/01-title.png)
+![Title Screen](screenshots/title-moscow.png)
+
+## Choose Your City
+
+Run through 6 world marathon routes, each with unique pixel-art landmarks and backgrounds that change as you progress:
+
+|  |  |  |
+|--|--|--|
+| ![Moscow](screenshots/title-moscow.png) | ![Berlin](screenshots/title-berlin.png) | ![New York](screenshots/title-newyork.png) |
+| ![London](screenshots/title-london.png) | ![Boston](screenshots/title-boston.png) | ![Singapore](screenshots/title-singapore.png) |
+
+Use **arrow keys** (desktop) or **swipe** (mobile) to select a city on the title screen.
 
 ## How to Play
 
@@ -13,8 +24,9 @@ Open `index.html` in any browser. No install, no build, no dependencies.
 **Desktop:**
 - **SPACE** — tap repeatedly to run (frequency = speed)
 - **D / ENTER** — drink water at pitstop stations
+- **Arrow keys** — select city on title screen
 
-**Mobile:** on-screen RUN and DRINK buttons appear automatically.
+**Mobile:** on-screen RUN and DRINK buttons appear automatically. Swipe to select city.
 
 Stay in the green **Rhythm Zone** for optimal efficiency.
 
@@ -26,51 +38,60 @@ Stay in the green **Rhythm Zone** for optimal efficiency.
 - **Power** — follows a natural U-shaped curve (high energy at start and end, low in the middle). Not player-controlled.
 - **Time limit** — 3 hours 20 minutes. Finish over the limit = lose. Don't finish = DNF.
 
-## The Route
+## The Routes
 
-The race follows the real Moscow Marathon route through 8 pixel-art scenes:
+### Moscow
 
-### Luzhniki Stadium — Start (0–2 km)
+The real Moscow Marathon route through 8 scenes: Luzhniki Stadium, Old City Embankment, Kremlin walls, Moscow City skyscrapers, Ulitsa 1905 Goda, Kitay-Gorod, sunset embankment return, and back to Luzhniki.
 
-The race begins at Luzhniki with the Olympic rings overhead and the running track underfoot.
+| | |
+|--|--|
+| ![Luzhniki](screenshots/moscow-luzhniki.png) | ![Kremlin](screenshots/moscow-kremlin.png) |
+| ![Moscow City](screenshots/moscow-city.png) | ![Pitstop](screenshots/moscow-pitstop.png) |
 
-![Luzhniki Start](screenshots/02-luzhniki-start.png)
+### Berlin
 
-### Old City Embankment (2–8 km)
+Brandenburg Gate and Unter den Linden, through Tiergarten Park, past Potsdamer Platz, along the East Side Gallery (Berlin Wall), Alexanderplatz with the TV Tower, and finish at the Reichstag.
 
-Through historic Moscow streets with classic apartment buildings along the river.
+| | |
+|--|--|
+| ![Brandenburg](screenshots/berlin-brandenburg.png) | ![Tiergarten](screenshots/berlin-tiergarten.png) |
+| ![East Side](screenshots/berlin-eastside.png) | |
 
-![Old City Embankment](screenshots/03-old-city-embankment.png)
+### New York
 
-### Kremlin Embankment (8–14 km)
+Over the Verrazzano Bridge, through Brooklyn brownstones, Queens, Harlem, into Central Park, and finish in Times Square.
 
-Running along the Moscow River with the Kremlin wall and Spasskaya Tower in view.
+| | |
+|--|--|
+| ![Bridge](screenshots/newyork-bridge.png) | ![Brooklyn](screenshots/newyork-brooklyn.png) |
+| ![Central Park](screenshots/newyork-centralpark.png) | |
 
-![Kremlin Embankment](screenshots/04-kremlin-embankment.png)
+### London
 
-### Moscow City (14–20 km)
+From Greenwich past the Cutty Sark, across Tower Bridge, through Canary Wharf, along the Thames past the London Eye, by Westminster and Big Ben, to Buckingham Palace on The Mall.
 
-Past the modern skyscrapers of the Moscow International Business Center.
+| | |
+|--|--|
+| ![Tower Bridge](screenshots/london-towerbridge.png) | ![London Eye](screenshots/london-eye.png) |
+| ![Westminster](screenshots/london-westminster.png) | |
 
-![Moscow City](screenshots/05-moscow-city.png)
+### Boston
 
-### Ulitsa 1905 Goda (20–28 km)
+From small-town Hopkinton through Ashland suburbs, past Wellesley College, up the infamous Heartbreak Hill in Newton, through Brookline past the Citgo Sign, to the Boylston Street finish.
 
-The midway grind through wide avenues with Stalinist towers and trolleybus wires.
+| | |
+|--|--|
+| ![Hopkinton](screenshots/boston-hopkinton.png) | ![Heartbreak Hill](screenshots/boston-heartbreak.png) |
 
-![Pitstop at Ulitsa 1905 Goda](screenshots/06-pitstop.png)
+### Singapore
 
-### Kitay-Gorod (28–34 km)
+Through the Padang colonial district, past Marina Bay and the Merlion, under the Supertrees at Gardens by the Bay, along East Coast Park beach, through colorful Chinatown shophouses, and finish at Marina Bay Sands.
 
-Historic quarter with old churches, fortress walls, and golden domes.
-
-![Kitay-Gorod](screenshots/07-kitay-gorod.png)
-
-### Embankment Return (34–40 km)
-
-Sunset run back along the river with cathedral silhouettes against the evening sky.
-
-![Embankment Return](screenshots/08-embankment-return.png)
+| | |
+|--|--|
+| ![Marina Bay](screenshots/singapore-marinabay.png) | ![Gardens](screenshots/singapore-gardens.png) |
+| ![Chinatown](screenshots/singapore-chinatown.png) | |
 
 ## Water Stations
 
@@ -80,8 +101,30 @@ Every 5 km, a pitstop zone appears — slow down and press D or ENTER to drink a
 
 Complete the 42 km and see your race stats — time, pace, steps, heart rate, and more.
 
-![Finish](screenshots/09-finish-win.png)
+![Finish](screenshots/finish-win.png)
 
 ## Tech
 
-Single-file HTML/JS/CSS. All graphics are procedural pixel art drawn with Canvas 2D `fillRect` calls. No images, no sprites, no external assets.
+HTML/JS/CSS split into modular files (`index.html` + `style.css` + `js/` directory). All graphics are procedural pixel art drawn with Canvas 2D `fillRect` calls. No images, no sprites, no external assets. No build tools or dependencies.
+
+### Project Structure
+
+```
+index.html          — HTML shell
+style.css           — all CSS
+js/
+  state.js          — canvas setup, constants, game state
+  cities.js         — city configurations (6 cities)
+  input.js          — keyboard & touch input
+  mechanics.js      — game update loop, physics, pitstops
+  drawing.js        — renderer, HUD, title/finish screens
+  scenes-moscow.js  — Moscow landmark scenes
+  scenes-berlin.js  — Berlin landmark scenes
+  scenes-newyork.js — New York landmark scenes
+  scenes-london.js  — London landmark scenes
+  scenes-boston.js   — Boston landmark scenes
+  scenes-singapore.js — Singapore landmark scenes
+  ground-generic.js — ground surfaces for non-Moscow cities
+  npcs.js           — NPC runners & spectators
+  main.js           — game loop & reset
+```
