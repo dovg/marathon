@@ -2,31 +2,96 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Iskander Marathon Runner</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body {
+html, body {
   background: #1a1a2e;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   font-family: monospace;
+  touch-action: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 canvas {
   border: 2px solid #333;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
 }
+#touch-controls {
+  display: none;
+  width: 100%;
+  max-width: 800px;
+  gap: 8px;
+  padding: 6px 8px;
+}
+#touch-controls button {
+  flex: 1;
+  height: 56px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: bold;
+  color: #fff;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+#btn-run {
+  background: rgba(230,57,70,0.5);
+}
+#btn-run:active, #btn-run.active {
+  background: rgba(230,57,70,0.85);
+  border-color: #e63946;
+}
+#btn-drink {
+  background: rgba(0,184,148,0.4);
+  flex: 0.45 !important;
+}
+#btn-drink:active, #btn-drink.active {
+  background: rgba(0,184,148,0.8);
+  border-color: #00b894;
+}
+@media (hover: none) and (pointer: coarse) {
+  canvas { border: none; }
+  #touch-controls { display: flex; }
+}
 </style>
 </head>
 <body>
 <canvas id="game" width="800" height="400"></canvas>
+<div id="touch-controls">
+  <button id="btn-run">RUN</button>
+  <button id="btn-drink">DRINK</button>
+</div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+
+// ---- Responsive canvas scaling ----
+function resizeCanvas() {
+  const controls = document.getElementById('touch-controls');
+  const controlsH = controls.offsetHeight || 0;
+  const maxW = window.innerWidth;
+  const maxH = window.innerHeight - controlsH;
+  const scale = Math.min(maxW / canvas.width, maxH / canvas.height);
+  canvas.style.width = Math.floor(canvas.width * scale) + 'px';
+  canvas.style.height = Math.floor(canvas.height * scale) + 'px';
+}
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+// ---- Mobile detection ----
+const isMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
 
 // ---- Constants ----
 const RACE_DISTANCE_KM = 42;
@@ -187,6 +252,42 @@ document.addEventListener('keyup', (e) => {
     keys[e.code] = false;
   }
 });
+
+// ---- Touch controls ----
+const btnRun = document.getElementById('btn-run');
+const btnDrink = document.getElementById('btn-drink');
+
+btnRun.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  btnRun.classList.add('active');
+  if (game.state === 'title') {
+    spaceJustPressed = true;
+  } else if (game.state === 'finished') {
+    spaceJustPressed = true;
+  } else if (game.state === 'running') {
+    keys['Space'] = true;
+    spaceJustPressed = true;
+  }
+});
+btnRun.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  btnRun.classList.remove('active');
+  keys['Space'] = false;
+});
+
+btnDrink.addEventListener('touchstart', (e) => {
+  e.preventDefault();
+  btnDrink.classList.add('active');
+  drinkJustPressed = true;
+});
+btnDrink.addEventListener('touchend', (e) => {
+  e.preventDefault();
+  btnDrink.classList.remove('active');
+});
+
+// Prevent default touch behaviors on canvas
+canvas.addEventListener('touchstart', (e) => e.preventDefault());
+canvas.addEventListener('touchmove', (e) => e.preventDefault());
 
 // ---- Press frequency tracking ----
 function registerPress() {
@@ -1675,7 +1776,7 @@ function drawHUD() {
     if (alreadyUsed) {
       ctx.fillText('Water station ' + game.currentPitstopKm + 'km - Already used', canvas.width / 2, canvas.height - 38);
     } else {
-      ctx.fillText('Press D or ENTER to drink water!', canvas.width / 2, canvas.height - 38);
+      ctx.fillText(isMobile ? 'Tap DRINK to get water!' : 'Press D or ENTER to drink water!', canvas.width / 2, canvas.height - 38);
     }
   }
 
@@ -1723,16 +1824,16 @@ function drawTitle() {
   ctx.fillStyle = '#718096';
   ctx.font = '11px monospace';
   ctx.fillText('Time limit: 3 hours 20 minutes', canvas.width / 2, 220);
-  ctx.fillText('Water stations every 5 km - press D to drink', canvas.width / 2, 238);
+  ctx.fillText(isMobile ? 'Water stations every 5 km - tap DRINK' : 'Water stations every 5 km - press D to drink', canvas.width / 2, 238);
   ctx.fillText('No saves. One shot. Pure marathon.', canvas.width / 2, 256);
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '16px monospace';
-  ctx.fillText('Press SPACE to start', canvas.width / 2, 310);
+  ctx.fillText(isMobile ? 'Tap RUN to start' : 'Press SPACE to start', canvas.width / 2, 310);
 
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText('Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 350);
+  ctx.fillText(isMobile ? 'Tap RUN rapidly. Tap DRINK at water stations.' : 'Tap SPACE to run. Stay in the green RHYTHM zone!', canvas.width / 2, 350);
 
   // Hidden command input
   if (cmdActive) {
@@ -1825,7 +1926,7 @@ function drawFinish() {
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '14px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Press SPACE to restart', canvas.width / 2, 370);
+  ctx.fillText(isMobile ? 'Tap RUN to restart' : 'Press SPACE to restart', canvas.width / 2, 370);
 }
 
 // ---- NPC System ----

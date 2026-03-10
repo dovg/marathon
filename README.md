@@ -10,9 +10,13 @@ Open `index.html` in any browser. No install, no build, no dependencies.
 
 ### Controls
 
+**Desktop:**
 - **SPACE** — tap repeatedly to run (frequency = speed)
 - **D / ENTER** — drink water at pitstop stations
-- Stay in the green **Rhythm Zone** for optimal efficiency
+
+**Mobile:** on-screen RUN and DRINK buttons appear automatically.
+
+Stay in the green **Rhythm Zone** for optimal efficiency.
 
 ### Mechanics
 
