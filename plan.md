@@ -44,8 +44,8 @@ Named after Iskander Yadgarov.
 - [x] Add kilometer marker signs along the route
 
 ### Task 3: Pitstops and race completion
-- [ ] Implement pitstop zones every 5 km with water station visuals
-- [ ] Implement water drinking mechanic (press key at pitstop to drink, restores stamina)
-- [ ] Implement race finish logic and finish line
-- [ ] Implement win/lose conditions (must finish within time limit)
-- [ ] Add start screen and finish screen with race stats
+- [x] Implement pitstop zones every 5 km with water station visuals
+- [x] Implement water drinking mechanic (press key at pitstop to drink, restores stamina)
+- [x] Implement race finish logic and finish line
+- [x] Implement win/lose conditions (must finish within time limit)
+- [x] Add start screen and finish screen with race stats

@@ -56,6 +56,16 @@ const game = {
   worldX: 0,         // camera scroll offset in pixels
   finishTime: null,
   raceResult: null,   // 'win' or 'lose'
+  // Pitstop state
+  pitstopsUsed: [],   // km values of pitstops already used
+  inPitstopZone: false,
+  currentPitstopKm: 0,
+  drinkingAnim: 0,    // 0 = not drinking, >0 = animation timer
+  drinkingRestored: 0, // stamina restored display
+  // Race stats
+  maxSpeedReached: 0,
+  totalPresses: 0,
+  pitstopsDrunk: 0,
   // Runner animation
   runner: {
     y: GROUND_Y - 32,
@@ -70,6 +80,7 @@ const game = {
 // ---- Input ----
 const keys = {};
 let spaceJustPressed = false;
+let drinkJustPressed = false;
 
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Space') {
@@ -79,11 +90,21 @@ document.addEventListener('keydown', (e) => {
       spaceJustPressed = true;
     }
   }
+  if (e.code === 'KeyD' || e.code === 'Enter') {
+    e.preventDefault();
+    if (!keys[e.code]) {
+      keys[e.code] = true;
+      drinkJustPressed = true;
+    }
+  }
 });
 
 document.addEventListener('keyup', (e) => {
   if (e.code === 'Space') {
     keys['Space'] = false;
+  }
+  if (e.code === 'KeyD' || e.code === 'Enter') {
+    keys[e.code] = false;
   }
 });
 
@@ -118,6 +139,40 @@ function getPowerMultiplier() {
 // ---- Update ----
 let lastTime = 0;
 
+// ---- Pitstop zone detection ----
+const PITSTOP_ZONE_RADIUS = 30; // meters around the pitstop marker
+
+function checkPitstopZone() {
+  const currentMeter = game.distance;
+  game.inPitstopZone = false;
+  game.currentPitstopKm = 0;
+
+  for (let km = PITSTOP_EVERY_KM; km < RACE_DISTANCE_KM; km += PITSTOP_EVERY_KM) {
+    const pitstopMeter = km * METERS_PER_KM;
+    if (Math.abs(currentMeter - pitstopMeter) < PITSTOP_ZONE_RADIUS) {
+      game.inPitstopZone = true;
+      game.currentPitstopKm = km;
+      break;
+    }
+  }
+}
+
+function drinkWater() {
+  if (!game.inPitstopZone) return;
+  if (game.pitstopsUsed.includes(game.currentPitstopKm)) return;
+  if (game.drinkingAnim > 0) return;
+
+  game.pitstopsUsed.push(game.currentPitstopKm);
+  game.pitstopsDrunk++;
+  const restored = Math.min(30, game.maxStamina - game.stamina);
+  game.stamina = Math.min(game.maxStamina, game.stamina + 30);
+  game.drinkingAnim = 1.5; // 1.5 seconds animation
+  game.drinkingRestored = restored;
+}
+
+// ---- Race time limit: 3h 20m = 12000 seconds ----
+const RACE_TIME_LIMIT = 12000;
+
 function update(dt) {
   if (game.state !== 'running') return;
 
@@ -127,9 +182,24 @@ function update(dt) {
   if (spaceJustPressed) {
     spaceJustPressed = false;
     registerPress();
+    game.totalPresses++;
     game.runner.stepping = true;
     game.runner.stepAnim = 0;
   }
+
+  // Handle drink press
+  if (drinkJustPressed) {
+    drinkJustPressed = false;
+    drinkWater();
+  }
+
+  // Update drinking animation
+  if (game.drinkingAnim > 0) {
+    game.drinkingAnim = Math.max(0, game.drinkingAnim - dt);
+  }
+
+  // Check pitstop zones
+  checkPitstopZone();
 
   // Calculate target speed from press frequency
   const freq = getPressFrequency();
@@ -156,6 +226,11 @@ function update(dt) {
   // Power follows the curve (not directly controllable)
   game.power = getPowerMultiplier() * game.maxPower;
 
+  // Track max speed
+  if (game.speed > game.maxSpeedReached) {
+    game.maxSpeedReached = game.speed;
+  }
+
   // Move distance
   game.distance += game.speed * dt;
   game.worldX = game.distance * PIXELS_PER_METER;
@@ -180,13 +255,19 @@ function update(dt) {
     }
   }
 
-  // Check finish
+  // Check finish - crossed the finish line
   if (game.distance >= TOTAL_METERS) {
     game.distance = TOTAL_METERS;
     game.state = 'finished';
     game.finishTime = game.time;
-    // Target: ~2.5 hours = 9000 seconds for a good time
-    game.raceResult = game.time < 12000 ? 'win' : 'lose';
+    game.raceResult = game.time <= RACE_TIME_LIMIT ? 'win' : 'lose';
+  }
+
+  // Check DNF - time ran out before finishing
+  if (game.time >= RACE_TIME_LIMIT && game.distance < TOTAL_METERS) {
+    game.state = 'finished';
+    game.finishTime = game.time;
+    game.raceResult = 'dnf';
   }
 }
 
@@ -779,35 +860,50 @@ function drawKmMarkers() {
         }
       }
     } else if (isPitstop) {
-      // Pitstop sign - green with water icon
-      ctx.fillStyle = '#00b894';
+      const used = game.pitstopsUsed.includes(km);
+
+      // Pitstop sign - green (or grey if used)
+      ctx.fillStyle = used ? '#636e72' : '#00b894';
       ctx.fillRect(sx - 16, GROUND_Y - 72, 36, 22);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(km + 'km', sx + 2, GROUND_Y - 57);
       // Water drop icon
-      ctx.fillStyle = '#74b9ff';
+      ctx.fillStyle = used ? '#b2bec3' : '#74b9ff';
       ctx.fillRect(sx + 14, GROUND_Y - 70, 4, 6);
 
       // Water table
-      ctx.fillStyle = '#00b894';
+      ctx.fillStyle = used ? '#636e72' : '#00b894';
       ctx.fillRect(sx + 15, GROUND_Y - 20, 35, 4);
       ctx.fillStyle = '#e0e0e0';
       ctx.fillRect(sx + 15, GROUND_Y - 20, 35, 1);
       // Table legs
-      ctx.fillStyle = '#00b894';
+      ctx.fillStyle = used ? '#636e72' : '#00b894';
       ctx.fillRect(sx + 17, GROUND_Y - 16, 3, 16);
       ctx.fillRect(sx + 44, GROUND_Y - 16, 3, 16);
-      // Water cups
-      ctx.fillStyle = '#74b9ff';
-      for (let c = 0; c < 3; c++) {
-        ctx.fillRect(sx + 20 + c * 10, GROUND_Y - 28, 6, 8);
-        // Cup rim
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(sx + 19 + c * 10, GROUND_Y - 28, 8, 1);
+      // Water cups (show empty if used)
+      if (!used) {
         ctx.fillStyle = '#74b9ff';
+        for (let c = 0; c < 3; c++) {
+          ctx.fillRect(sx + 20 + c * 10, GROUND_Y - 28, 6, 8);
+          ctx.fillStyle = '#fff';
+          ctx.fillRect(sx + 19 + c * 10, GROUND_Y - 28, 8, 1);
+          ctx.fillStyle = '#74b9ff';
+        }
+      } else {
+        // Empty cups (overturned)
+        ctx.fillStyle = '#b2bec3';
+        for (let c = 0; c < 3; c++) {
+          ctx.fillRect(sx + 20 + c * 10, GROUND_Y - 24, 6, 4);
+        }
       }
+
+      // Volunteer standing behind table
+      ctx.fillStyle = '#00b894';
+      ctx.fillRect(sx + 28, GROUND_Y - 44, 8, 12); // body
+      ctx.fillStyle = '#f5c6a0';
+      ctx.fillRect(sx + 29, GROUND_Y - 50, 6, 6);  // head
     } else {
       // Regular km sign - white with red accent
       ctx.fillStyle = '#fff';
@@ -867,12 +963,57 @@ function drawHUD() {
   ctx.font = '10px monospace';
   ctx.textAlign = 'right';
   ctx.fillText('Press rate: ' + freq.toFixed(1) + '/s', canvas.width - 20, 30);
+
+  // Time limit warning
+  const timeRemaining = RACE_TIME_LIMIT - game.time;
+  if (timeRemaining < 600) { // last 10 minutes
+    ctx.fillStyle = timeRemaining < 120 ? '#e63946' : '#e17055';
+    ctx.font = '12px monospace';
+    ctx.textAlign = 'right';
+    const tr_mins = Math.floor(timeRemaining / 60);
+    const tr_secs = Math.floor(timeRemaining % 60);
+    ctx.fillText('Time left: ' + tr_mins + ':' + String(tr_secs).padStart(2, '0'), canvas.width - 20, 48);
+  }
+
+  // Pitstop zone indicator
+  if (game.inPitstopZone) {
+    const alreadyUsed = game.pitstopsUsed.includes(game.currentPitstopKm);
+    ctx.fillStyle = 'rgba(0,184,148,0.85)';
+    ctx.fillRect(canvas.width / 2 - 130, canvas.height - 60, 260, 36);
+    ctx.fillStyle = '#fff';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    if (alreadyUsed) {
+      ctx.fillText('Water station ' + game.currentPitstopKm + 'km - Already used', canvas.width / 2, canvas.height - 38);
+    } else {
+      ctx.fillText('Press D or ENTER to drink water!', canvas.width / 2, canvas.height - 38);
+    }
+  }
+
+  // Drinking animation overlay
+  if (game.drinkingAnim > 0) {
+    ctx.fillStyle = 'rgba(116,185,255,' + (game.drinkingAnim / 1.5 * 0.5) + ')';
+    ctx.fillRect(canvas.width / 2 - 80, canvas.height / 2 - 20, 160, 40);
+    ctx.fillStyle = '#fff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('+' + Math.round(game.drinkingRestored) + ' Stamina!', canvas.width / 2, canvas.height / 2 + 6);
+  }
 }
 
 // ---- Draw Title Screen ----
 function drawTitle() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw a small runner silhouette
+  ctx.fillStyle = '#e63946';
+  ctx.fillRect(canvas.width / 2 - 5, 55, 10, 10);  // head
+  ctx.fillRect(canvas.width / 2 - 7, 65, 14, 14);  // body
+  ctx.fillRect(canvas.width / 2 - 10, 72, 5, 10);   // arm
+  ctx.fillRect(canvas.width / 2 + 5, 72, 5, 10);    // arm
+  ctx.fillRect(canvas.width / 2 - 7, 79, 5, 12);    // leg
+  ctx.fillRect(canvas.width / 2 + 2, 79, 5, 12);    // leg
 
   ctx.fillStyle = '#e63946';
   ctx.font = '28px monospace';
@@ -885,21 +1026,29 @@ function drawTitle() {
 
   ctx.font = '12px monospace';
   ctx.fillStyle = '#a0aec0';
-  ctx.fillText('42 km of pure determination', canvas.width / 2, 190);
+  ctx.fillText('42 km of pure determination', canvas.width / 2, 185);
+
+  // Race info box
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.fillRect(canvas.width / 2 - 180, 200, 360, 70);
+  ctx.fillStyle = '#718096';
+  ctx.font = '11px monospace';
+  ctx.fillText('Time limit: 3 hours 20 minutes', canvas.width / 2, 220);
+  ctx.fillText('Water stations every 5 km - press D to drink', canvas.width / 2, 238);
+  ctx.fillText('No saves. One shot. Pure marathon.', canvas.width / 2, 256);
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '16px monospace';
-  ctx.fillText('Press SPACE to start', canvas.width / 2, 260);
+  ctx.fillText('Press SPACE to start', canvas.width / 2, 310);
 
   ctx.fillStyle = '#718096';
   ctx.font = '10px monospace';
-  ctx.fillText('Tap SPACE rapidly to run. Manage your stamina!', canvas.width / 2, 310);
-  ctx.fillText('Water stations every 5 km. No saves!', canvas.width / 2, 328);
+  ctx.fillText('Tap SPACE rapidly to run. Manage your stamina!', canvas.width / 2, 350);
 }
 
 // ---- Draw Finish Screen ----
 function drawFinish() {
-  ctx.fillStyle = 'rgba(0,0,0,0.8)';
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const hours = Math.floor(game.finishTime / 3600);
@@ -910,25 +1059,96 @@ function drawFinish() {
     ctx.fillStyle = '#00b894';
     ctx.font = '28px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('RACE COMPLETE!', canvas.width / 2, 120);
+    ctx.fillText('MARATHON COMPLETE!', canvas.width / 2, 80);
+    ctx.fillStyle = '#ffeaa7';
+    ctx.font = '14px monospace';
+    ctx.fillText('Iskander finished the Moscow Marathon!', canvas.width / 2, 108);
+  } else if (game.raceResult === 'dnf') {
+    ctx.fillStyle = '#e63946';
+    ctx.font = '28px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('DID NOT FINISH', canvas.width / 2, 80);
+    ctx.fillStyle = '#e17055';
+    ctx.font = '14px monospace';
+    const distKm = (game.distance / METERS_PER_KM).toFixed(2);
+    ctx.fillText('Time ran out at ' + distKm + ' km', canvas.width / 2, 108);
   } else {
     ctx.fillStyle = '#e17055';
     ctx.font = '28px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('RACE FINISHED', canvas.width / 2, 120);
+    ctx.fillText('TOO SLOW!', canvas.width / 2, 80);
+    ctx.fillStyle = '#e17055';
+    ctx.font = '14px monospace';
+    ctx.fillText('Finished, but over the time limit', canvas.width / 2, 108);
   }
 
-  ctx.fillStyle = '#f1faee';
-  ctx.font = '16px monospace';
-  ctx.fillText('Time: ' + hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's', canvas.width / 2, 170);
-  ctx.fillText('Distance: 42.00 km', canvas.width / 2, 200);
+  // Stats box
+  ctx.fillStyle = 'rgba(255,255,255,0.06)';
+  ctx.fillRect(canvas.width / 2 - 170, 125, 340, 180);
 
-  const avgSpeed = (TOTAL_METERS / game.finishTime) * 3.6;
-  ctx.fillText('Avg Speed: ' + avgSpeed.toFixed(1) + ' km/h', canvas.width / 2, 230);
+  ctx.fillStyle = '#f1faee';
+  ctx.font = '14px monospace';
+  ctx.textAlign = 'left';
+  const sx = canvas.width / 2 - 140;
+
+  ctx.fillText('Finish Time:', sx, 150);
+  ctx.fillStyle = '#ffeaa7';
+  ctx.textAlign = 'right';
+  ctx.fillText(hours + 'h ' + String(mins).padStart(2, '0') + 'm ' + String(secs).padStart(2, '0') + 's', canvas.width / 2 + 140, 150);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Distance:', sx, 172);
+  ctx.textAlign = 'right';
+  ctx.fillText((game.distance / METERS_PER_KM).toFixed(2) + ' / 42 km', canvas.width / 2 + 140, 172);
+
+  const avgSpeed = game.finishTime > 0 ? (game.distance / game.finishTime) * 3.6 : 0;
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Avg Speed:', sx, 194);
+  ctx.textAlign = 'right';
+  ctx.fillText(avgSpeed.toFixed(1) + ' km/h', canvas.width / 2 + 140, 194);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Max Speed:', sx, 216);
+  ctx.textAlign = 'right';
+  ctx.fillText((game.maxSpeedReached * 3.6).toFixed(1) + ' km/h', canvas.width / 2 + 140, 216);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Total Steps:', sx, 238);
+  ctx.textAlign = 'right';
+  ctx.fillText(game.totalPresses.toString(), canvas.width / 2 + 140, 238);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Water Stops:', sx, 260);
+  ctx.textAlign = 'right';
+  ctx.fillText(game.pitstopsDrunk + ' / 8', canvas.width / 2 + 140, 260);
+
+  ctx.fillStyle = '#f1faee';
+  ctx.textAlign = 'left';
+  ctx.fillText('Final Stamina:', sx, 282);
+  ctx.textAlign = 'right';
+  ctx.fillText(Math.round(game.stamina) + '%', canvas.width / 2 + 140, 282);
+
+  // Pace per km
+  if (game.distance > 0) {
+    const paceSeconds = game.finishTime / (game.distance / METERS_PER_KM);
+    const paceMins = Math.floor(paceSeconds / 60);
+    const paceSecs = Math.floor(paceSeconds % 60);
+    ctx.fillStyle = '#f1faee';
+    ctx.textAlign = 'left';
+    ctx.fillText('Avg Pace:', sx, 298);
+    ctx.textAlign = 'right';
+    ctx.fillText(paceMins + ':' + String(paceSecs).padStart(2, '0') + ' /km', canvas.width / 2 + 140, 298);
+  }
 
   ctx.fillStyle = '#ffeaa7';
   ctx.font = '14px monospace';
-  ctx.fillText('Press SPACE to restart', canvas.width / 2, 300);
+  ctx.textAlign = 'center';
+  ctx.fillText('Press SPACE to restart', canvas.width / 2, 345);
 }
 
 // ---- Main Loop ----
@@ -985,6 +1205,14 @@ function resetGame() {
   game.worldX = 0;
   game.finishTime = null;
   game.raceResult = null;
+  game.pitstopsUsed = [];
+  game.inPitstopZone = false;
+  game.currentPitstopKm = 0;
+  game.drinkingAnim = 0;
+  game.drinkingRestored = 0;
+  game.maxSpeedReached = 0;
+  game.totalPresses = 0;
+  game.pitstopsDrunk = 0;
   game.runner.frame = 0;
   game.runner.frameTimer = 0;
   game.runner.bobY = 0;
