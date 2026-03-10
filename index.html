@@ -69,7 +69,11 @@ canvas {
 </style>
 </head>
 <body>
+<div id="game-wrapper" style="position:relative;display:inline-block">
 <canvas id="game" width="800" height="400"></canvas>
+<a id="github-link" href="https://github.com/dovg/marathon" target="_blank"
+   style="position:absolute;bottom:6px;right:10px;color:#4a5568;font:9px monospace;text-decoration:none;pointer-events:auto">github.com/dovg/marathon</a>
+</div>
 <div id="touch-controls">
   <button id="btn-run">RUN</button>
   <button id="btn-drink">DRINK</button>
@@ -2130,6 +2134,9 @@ function gameLoop(timestamp) {
 
   // Draw
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const ghLink = document.getElementById('github-link');
+  ghLink.style.display = game.state === 'title' ? '' : 'none';
 
   if (game.state === 'title') {
     drawTitle();
