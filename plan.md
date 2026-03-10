@@ -38,10 +38,10 @@ Named after Iskander Yadgarov.
 - [x] Implement basic HUD showing distance, stamina, power, speed
 
 ### Task 2: Moscow pixel-art backgrounds
-- [ ] Draw Kremlin embankment background scene (pixel art)
-- [ ] Draw Gorky Park background scene (pixel art)
-- [ ] Implement background transitions as runner progresses through the race
-- [ ] Add kilometer marker signs along the route
+- [x] Draw Kremlin embankment background scene (pixel art)
+- [x] Draw Gorky Park background scene (pixel art)
+- [x] Implement background transitions as runner progresses through the race
+- [x] Add kilometer marker signs along the route
 
 ### Task 3: Pitstops and race completion
 - [ ] Implement pitstop zones every 5 km with water station visuals
